@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: smart-agriculture-management
+    runtime: node
+    plan: starter
+    buildCommand: npm --prefix "Back end" ci --omit=dev
+    startCommand: npm --prefix "Back end" start
+    disk:
+      name: smart-agriculture-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data/data
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
