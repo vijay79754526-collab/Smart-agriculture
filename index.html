@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Agriculture App</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon">🌱</div>
+      <h1>Smart Agriculture</h1>
+    </div>
+    <div class="header-actions">
+      <button id="featureSearchToggle" class="header-icon-link" type="button" aria-label="Search project features" title="Search project features" aria-expanded="false" aria-controls="featureSearchPanel">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10.8" cy="10.8" r="6.3"></circle>
+          <path d="m15.5 15.5 5 5"></path>
+        </svg>
+      </button>
+      <label class="language-picker">
+        <span class="visually-hidden">Select language</span>
+        <select id="languageSelect" aria-label="Select language">
+          <option value="en">English</option>
+          <option value="kn">ಕನ್ನಡ</option>
+          <option value="hi">हिन्दी</option>
+        </select>
+      </label>
+      <button id="themeToggle" class="secondary-btn" type="button" aria-label="Toggle theme">🌙</button>
+      <div class="profile-menu-wrap">
+        <button id="profileMenuToggle" class="profile-avatar" type="button" aria-label="Profile"
+                title="Profile" aria-expanded="false" aria-controls="profileMenu" hidden>
+          <img src="/images/profile-avatar.svg" alt="">
+        </button>
+        <section id="profileMenu" class="profile-menu-panel" aria-label="Profile" hidden>
+          <h2 data-translation-source="Account details">Account details</h2>
+          <dl class="profile-account-details">
+            <div>
+              <dt data-translation-source="Name">Name</dt>
+              <dd id="profileAccountName"></dd>
+            </div>
+            <div>
+              <dt data-translation-source="Email">Email</dt>
+              <dd id="profileAccountEmail"></dd>
+            </div>
+            <div>
+              <dt data-translation-source="Mobile number">Mobile number</dt>
+              <dd id="profileAccountMobile"></dd>
+            </div>
+          </dl>
+          <button id="editProfileBtn" class="profile-edit-btn" type="button" data-translation-source="Edit">Edit</button>
+          <form id="profileForm" class="profile-account-form" hidden>
+            <label>
+              <span data-translation-source="Name">Name</span>
+              <input name="name" type="text" placeholder="Full name" autocomplete="name" maxlength="80" required>
+            </label>
+            <label>
+              <span data-translation-source="Email">Email</span>
+              <input name="email" type="email" placeholder="Email" autocomplete="email" maxlength="254" required>
+            </label>
+            <label>
+              <span data-translation-source="Mobile number">Mobile number</span>
+              <input name="mobileNumber" type="tel" placeholder="Indian mobile number (10 digits)"
+                     autocomplete="tel" inputmode="tel" maxlength="13"
+                     pattern="[6-9][0-9]{9}|\+91[6-9][0-9]{9}" required>
+            </label>
+            <div class="profile-edit-actions">
+              <button type="submit" data-translation-source="Save Profile">Save Profile</button>
+              <button id="cancelProfileEditBtn" class="secondary-btn" type="button"
+                      data-translation-source="Cancel">Cancel</button>
+            </div>
+          </form>
+          <p id="profileMenuMessage" class="form-message" role="status" aria-live="polite" hidden></p>
+
+          <form id="profilePasswordForm" class="profile-password-form">
+            <h3 data-translation-source="Update password">Update password</h3>
+            <input name="currentPassword" type="password" placeholder="Current password"
+                   autocomplete="current-password" required>
+            <input name="newPassword" type="password" placeholder="New password (minimum 8 characters)"
+                   autocomplete="new-password" minlength="8" required>
+            <input name="confirmPassword" type="password" placeholder="Confirm new password"
+                   autocomplete="new-password" minlength="8" required>
+            <button type="submit" data-translation-source="Update Password">Update Password</button>
+          </form>
+          <button id="logoutBtn" class="profile-logout-btn" type="button" data-translation-source="Logout">Logout</button>
+        </section>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="featureSearchPanel" class="feature-search-panel" hidden>
+      <label for="featureSearchInput">Search project features and categories</label>
+      <input id="featureSearchInput" type="search" autocomplete="off" placeholder="Search features and categories">
+      <ul id="featureSearchResults" class="feature-search-results" aria-live="polite"></ul>
+    </section>
+
+    <section id="dashboard">
+      <div class="dashboard-header">
+        <div>
+          <p class="eyebrow">Farm dashboard</p>
+          <h2 id="welcome"></h2>
+        </div>
+        <p class="subheading">Manage your farm from one place.</p>
+      </div>
+
+      <div id="overviewCards" class="overview-cards">
+        <article class="stat-card success">
+          <span class="stat-label">Total crops</span>
+          <strong id="totalCrops">0</strong>
+        </article>
+        <article class="stat-card warning">
+          <span class="stat-label">Expenses</span>
+          <strong id="totalExpenses">₹0</strong>
+        </article>
+        <article class="stat-card info">
+          <span class="stat-label">Readings</span>
+          <strong id="totalReadings">0</strong>
+        </article>
+        <article class="stat-card accent">
+          <span class="stat-label">Health scans</span>
+          <strong id="totalHealthScans">0</strong>
+        </article>
+      </div>
+
+      <section class="panel feature-dashboard-panel">
+        <div class="feature-dashboard-header">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h3>Feature categories</h3>
+          </div>
+          <p class="subheading">Quick access to every farm management area.</p>
+        </div>
+
+        <div class="feature-categories" aria-label="Agriculture feature categories">
+          <a class="feature-category active" href="/dashboard">Overview</a>
+          <a class="feature-category" href="/feature/crop-management">Crop Management</a>
+          <a class="feature-category" href="/feature/crop-recommendations">Crop Recommendations</a>
+          <a class="feature-category" href="/feature/disease-guidance">Disease Guidance</a>
+          <a class="feature-category" href="/feature/soil-testing">Soil Testing</a>
+          <a class="feature-category" href="/feature/weather-management">Weather</a>
+          <a class="feature-category" href="/feature/market-prices">Market Prices</a>
+          <a class="feature-category" href="/feature/farm-expenses">Farm Expenses</a>
+          <a class="feature-category" href="/feature/feedback">Feedback</a>
+          <a class="feature-category" href="/feature/saved-searches">Saved Searches</a>
+        </div>
+      </section>
+
+      <div class="feature-page-heading" hidden>
+        <a class="back-link" href="/dashboard">← Back to dashboard</a>
+      </div>
+
+      <div class="cards">
+        <section class="panel feature-panel" data-feature="saved-searches">
+          <h3>Saved Searches</h3>
+          <div id="savedSearches" class="saved-searches-header">
+            <button id="clearSearchHistory" class="secondary-btn" type="button">Clear Searches</button>
+          </div>
+          <ul id="savedSearchList" class="result-list" aria-live="polite"></ul>
+        </section>
+
+        <section class="panel feature-panel" data-feature="crop-recommendations">
+          <h3>🌱 Crop Suitability Recommendations</h3>
+          <p>Enter your soil test, planting season, and district to find crops that best match your soil and estimated weather.</p>
+          <form id="cropRecommendationForm">
+            <select name="season" required>
+              <option value="">Select season</option>
+              <option value="Summer">Summer</option>
+              <option value="Monsoon">Rainy season (Monsoon)</option>
+              <option value="Winter">Winter</option>
+            </select>
+            <input name="ph" type="number" min="0" max="14" step="0.1"
+                   placeholder="Soil pH" required>
+            <input name="moisture" type="number" min="0" max="100" step="0.1"
+                   placeholder="Soil moisture (%)" required>
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <button type="submit">Recommend Suitable Crops</button>
+          </form>
+          <div id="cropRecommendationResult" class="result-panel" role="status" aria-live="polite" hidden></div>
+          <small>Use recent soil-test values. Recommendations use crop guide ranges, season, and the app's district weather estimate; confirm planting decisions with local agricultural guidance.</small>
+        </section>
+
+        <section class="panel feature-panel" data-feature="crop-management">
+          <h3>🌾 Crop Management</h3>
+          <form id="cropForm">
+            <input name="name" placeholder="Crop name" required>
+            <input name="area" type="number" min="0.1" step="0.1"
+                   placeholder="Area in acres" required>
+            <select name="category" required>
+              <option value="">Select crop category</option>
+              <option value="Cereal">Cereal</option>
+              <option value="Vegetable">Vegetable</option>
+              <option value="Fruit">Fruit</option>
+              <option value="Pulse">Pulse</option>
+              <option value="Cash Crop">Cash Crop</option>
+            </select>
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <select name="season" required>
+              <option value="">Select season</option>
+              <option value="Summer">Summer</option>
+              <option value="Monsoon">Rainy season (Monsoon)</option>
+              <option value="Winter">Winter</option>
+            </select>
+            <button>Add Crop</button>
+          </form>
+          <ul id="cropList" class="result-list" aria-live="polite"></ul>
+        </section>
+
+        <section class="panel feature-panel" data-feature="disease-guidance">
+          <h3>🍃 Crop Disease Guidance</h3>
+          <form id="diseaseForm">
+            <label>Upload leaf photo (optional)</label>
+            <input name="leaf" type="file" accept="image/jpeg,image/png,image/webp">
+            <label>Describe a symptom</label>
+            <select name="symptom" required>
+              <option value="">Select symptom</option>
+              <option value="spots">Leaf spots</option>
+              <option value="yellow">Yellow leaves</option>
+              <option value="wilt">Wilting</option>
+              <option value="other">Other</option>
+            </select>
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <button>Check Guidance</button>
+          </form>
+          <div id="diseaseResult" class="disease-result" role="status" aria-live="polite" hidden></div>
+          <details class="disease-more" hidden>
+            <summary>Show more</summary>
+            <div class="disease-more-content">
+              <p class="fertilizer-note">Fertilizers support crop nutrition; they do not cure plant diseases. Choose a product only after a soil test and follow crop-specific local advice.</p>
+              <h4>Soil-test-based fertilizer options</h4>
+              <div class="fertilizer-cards">
+                <article class="fertilizer-card">
+                  <img src="/images/organic-compost.svg" alt="Illustration of an organic compost bag">
+                  <div>
+                    <h5>Well-decomposed compost</h5>
+                    <p>Adds organic matter and supports soil structure. Use mature, clean compost.</p>
+                  </div>
+                </article>
+                <article class="fertilizer-card">
+                  <img src="/images/neem-cake.svg" alt="Illustration of a neem cake soil amendment bag">
+                  <div>
+                    <h5>Neem cake</h5>
+                    <p>An organic soil amendment that can support soil health. It is not a treatment for an active disease.</p>
+                  </div>
+                </article>
+                <article class="fertilizer-card">
+                  <img src="/images/balanced-npk.svg" alt="Illustration of a balanced NPK fertilizer bag">
+                  <div>
+                    <h5>Balanced NPK fertilizer</h5>
+                    <p>Use only the nutrient ratio and dose recommended for your crop and soil-test results.</p>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel feature-panel" data-feature="soil-testing">
+          <h3>🧪 Soil Testing</h3>
+          <form id="soilForm">
+            <input name="ph" type="number" min="0" max="14"
+                   step="0.1" placeholder="Soil pH" required>
+            <input name="nitrogen" type="number" min="0"
+                   placeholder="Nitrogen (test value)" required>
+            <input name="phosphorus" type="number" min="0"
+                   placeholder="Phosphorus (test value)" required>
+            <input name="potassium" type="number" min="0"
+                   placeholder="Potassium (test value)" required>
+            <input name="moisture" type="number" min="0" max="100"
+                   placeholder="Moisture (%)" required>
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <button>Analyze Soil</button>
+          </form>
+          <div id="soilResult" class="result-panel" role="status" aria-live="polite" hidden></div>
+          <small>Use measured values from a soil test; units depend on your test method.</small>
+        </section>
+
+        <section class="panel feature-panel" data-feature="weather-management">
+          <h3>🌦️ Weather Management</h3>
+          <form id="weatherForm">
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <button type="submit">View Weather</button>
+          </form>
+          <div id="weatherResult" class="result-panel" role="status" aria-live="polite" hidden></div>
+        </section>
+
+        <section class="panel feature-panel" data-feature="market-prices">
+          <h3>📈 Market Price Analysis</h3>
+          <form id="marketForm">
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <button type="submit">View Market Prices</button>
+          </form>
+          <div id="marketResult" class="result-panel" role="status" aria-live="polite" hidden></div>
+          <small id="marketDataNote">If official mandi prices are unavailable, the list uses guessed India-wide estimates for planning only. Confirm today's prices with your local mandi.</small>
+        </section>
+
+        <section class="panel feature-panel" data-feature="farm-expenses">
+          <h3>💰 Farm Expenses</h3>
+          <form id="expenseForm">
+            <input name="item" placeholder="Expense description" required>
+            <select name="category" required>
+              <option value="">Select category</option>
+              <option value="Seeds">Seeds</option>
+              <option value="Fertilizer">Fertilizer</option>
+              <option value="Irrigation">Irrigation</option>
+              <option value="Labor">Labor</option>
+              <option value="Equipment">Equipment</option>
+              <option value="Other">Other</option>
+            </select>
+            <select name="state" class="state-select" required>
+              <option value="">Select state</option>
+            </select>
+            <select name="district" class="district-select" required>
+              <option value="">Select district</option>
+            </select>
+            <input name="amount" type="number" min="0.01" step="0.01"
+                   placeholder="Amount in ₹" required>
+            <button>Add Expense</button>
+          </form>
+          <ul id="expenseList" class="result-list" aria-live="polite"></ul>
+        </section>
+
+        <section class="panel feature-panel" data-feature="feedback">
+          <h3>💬 Farmer Feedback</h3>
+          <form id="feedbackForm">
+            <select name="category" required>
+              <option value="">Select feedback category</option>
+              <option value="App Experience">App Experience</option>
+              <option value="Crop Health">Crop Health</option>
+              <option value="Soil Management">Soil Management</option>
+              <option value="Market Advice">Market Advice</option>
+              <option value="Other">Other</option>
+            </select>
+            <select name="rating" required>
+              <option value="">Choose rating</option>
+              <option value="5">5 - Excellent</option>
+              <option value="4">4 - Good</option>
+              <option value="3">3 - Fair</option>
+              <option value="2">2 - Needs work</option>
+              <option value="1">1 - Poor</option>
+            </select>
+            <textarea name="message" rows="3" placeholder="Share your feedback or suggestion" required></textarea>
+            <button type="submit">Submit Feedback</button>
+          </form>
+          <ul id="feedbackList" class="result-list" aria-live="polite"></ul>
+        </section>
+      </div>
+
+      <p id="appMessage" class="app-message" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <img src="/images/agriculture-footer.svg" alt="" aria-hidden="true">
+    <span data-translation-source="Smart Agriculture">Smart Agriculture</span>
+  </footer>
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

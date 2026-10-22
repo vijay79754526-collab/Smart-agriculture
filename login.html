@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in · Smart Agriculture</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon">🌱</div>
+      <h1>Smart Agriculture</h1>
+    </div>
+    <div class="header-actions">
+      <label class="language-picker">
+        <span class="visually-hidden">Select language</span>
+        <select id="languageSelect" aria-label="Select language">
+          <option value="en">English</option>
+          <option value="kn">ಕನ್ನಡ</option>
+          <option value="hi">हिन्दी</option>
+        </select>
+      </label>
+      <button id="themeToggle" class="secondary-btn" type="button" aria-label="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+  <main class="login-main">
+    <section class="panel login-panel">
+      <p class="eyebrow">Farmer account</p>
+      <h2>Welcome, Farmer!</h2>
+      <p class="login-intro">Sign in to open your farm dashboard and manage your farm in one place.</p>
+
+      <div class="tabs">
+        <button id="showLogin" class="active" type="button">Login</button>
+        <button id="showRegister" type="button">Register</button>
+      </div>
+
+      <form id="loginForm">
+        <h3>Login to your account</h3>
+        <input name="identifier" type="text" placeholder="Email or mobile number" autocomplete="username" required>
+        <div class="password-field">
+          <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+          <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+              <path class="eye-slash" d="m3 3 18 18"></path>
+            </svg>
+          </button>
+        </div>
+        <button type="submit">Login</button>
+      </form>
+      <button id="forgotPasswordBtn" class="link-button" type="button">Forgot password?</button>
+
+      <form id="passwordResetRequestForm" hidden>
+        <h3>Reset your password</h3>
+        <p>Enter the email address registered to your account. We’ll send a one-time password reset link to your email.</p>
+        <input name="identifier" type="email" placeholder="Registered email address"
+               autocomplete="email" maxlength="254" required>
+        <button type="submit">Send reset link</button>
+        <button id="resetRequestBackBtn" class="secondary-btn" type="button">Back to login</button>
+      </form>
+
+      <form id="passwordResetCompleteForm" hidden>
+        <h3 id="passwordResetCompleteHeading">Create a new password</h3>
+        <p id="passwordResetCompleteInstructions">Use the one-time link sent to your email to create a new password. The link expires in 10 minutes.</p>
+        <input name="resetId" type="hidden" required>
+        <input name="token" type="hidden">
+        <div class="password-field">
+          <input name="newPassword" type="password" placeholder="New password (minimum 8 characters)"
+                 autocomplete="new-password" minlength="8" required>
+          <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+              <path class="eye-slash" d="m3 3 18 18"></path>
+            </svg>
+          </button>
+        </div>
+        <input name="confirmPassword" type="password" placeholder="Confirm new password"
+               autocomplete="new-password" minlength="8" required>
+        <button type="submit">Reset Password</button>
+        <button id="resetCompleteBackBtn" class="secondary-btn" type="button">Request another reset</button>
+      </form>
+
+      <form id="registerForm" hidden>
+        <h3>Create your account</h3>
+        <input name="name" placeholder="Full name" autocomplete="name" required>
+        <input name="email" type="email" placeholder="Email" autocomplete="email" required>
+        <input name="mobileNumber" type="tel" placeholder="Indian mobile number (10 digits)"
+               autocomplete="tel" inputmode="tel" maxlength="13"
+               pattern="[6-9][0-9]{9}|\+91[6-9][0-9]{9}" required>
+        <div class="password-field">
+          <input name="password" type="password"
+                 placeholder="Password (minimum 8 characters)"
+                 autocomplete="new-password" minlength="8" required>
+          <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+              <path class="eye-slash" d="m3 3 18 18"></path>
+            </svg>
+          </button>
+        </div>
+        <button type="submit">Create Account</button>
+      </form>
+
+      <p id="authMessage" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <img src="/images/agriculture-footer.svg" alt="" aria-hidden="true">
+    <span data-translation-source="Smart Agriculture">Smart Agriculture</span>
+  </footer>
+  <script src="/i18n.js"></script>
+  <script src="/login.js"></script>
+</body>
+</html>
