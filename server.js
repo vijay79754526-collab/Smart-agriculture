@@ -19,7 +19,7 @@ const PASSWORD_RESET_CODE_SECRET = crypto
   .digest();
 
 // Folders and database
-const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, "uploads"));
 const DB_FILE = path.join(DATA_DIR, "db.json");
