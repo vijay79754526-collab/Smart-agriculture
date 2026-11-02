@@ -1,9 +1,20 @@
+# Environment variables
+.env
+.env.*
 Back end/.env
+Back end/.env.*
+
+# Dependencies
+node_modules/
+Back end/node_modules/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor settings
+.vscode/
+
+# Runtime data
 Back end/data/*
 Back end/uploads/*
-Back end/node_modules/
-node_modules/
-npm-debug.log*
-.env
-**/ .env
-.vscode/
