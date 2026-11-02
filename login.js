@@ -236,7 +236,7 @@ if (hasPasswordResetLink) {
   passwordResetCompleteForm.querySelector('[name="resetId"]').value = resetIdFromLink;
   passwordResetCompleteForm.querySelector('[name="token"]').value = resetTokenFromLink;
   $("#passwordResetCompleteInstructions").textContent =
-    window.agriI18n.translate("Choose a new password to finish resetting your account. This link expires in 10 minutes.");
+    window.agriI18n.translate("Choose a new password to finish resetting your account. This link expires in 60 minutes.");
   showMessage("");
   passwordResetCompleteForm.querySelector('[name="newPassword"]').focus();
   window.history.replaceState({}, "", "/reset-password");

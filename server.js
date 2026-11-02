@@ -1,17 +1,31 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
-require("dotenv").config({
-  path: path.join(__dirname, ".env")
-});
+const dotenv = require("dotenv");
+const appEnvPath = path.join(__dirname, ".env");
+const backendEnvPath = path.join(__dirname, "Back end", ".env");
+dotenv.config({ path: appEnvPath });
+if (fs.existsSync(backendEnvPath)) {
+  const backendEnv = dotenv.parse(fs.readFileSync(backendEnvPath));
+  for (const [key, value] of Object.entries(backendEnv)) {
+    if (!["PORT", "PUBLIC_APP_URL", "RENDER_EXTERNAL_URL"].includes(key) &&
+        process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 const JWT_SECRET = process.env.JWT_SECRET || "smart-agri-secret";
 const PASSWORD_RESET_CODE_SECRET = crypto
   .createHmac("sha256", JWT_SECRET)
@@ -22,12 +36,24 @@ const PASSWORD_RESET_CODE_SECRET = crypto
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, "uploads"));
-const DB_FILE = path.join(DATA_DIR, "db.json");
+const ROOT_DB_FILE = path.join(DATA_DIR, "db.json");
+const BACKEND_DB_FILE = path.join(__dirname, "Back end", "data", "db.json");
+function databaseHasUsers(file) {
+  if (!fs.existsSync(file)) return false;
+  const savedData = JSON.parse(fs.readFileSync(file, "utf8"));
+  return Array.isArray(savedData.users) && savedData.users.length > 0;
+}
+const DB_FILE = !process.env.DATA_DIR &&
+  databaseHasUsers(BACKEND_DB_FILE) &&
+  !databaseHasUsers(ROOT_DB_FILE)
+  ? BACKEND_DB_FILE
+  : ROOT_DB_FILE;
 const PASSWORD_RESET_CHALLENGES_FILE = path.join(DATA_DIR, "password-reset-challenges.json");
 const users = [];
 const passwordResetChallenges = new Map();
 const passwordResetCooldowns = new Map();
 const passwordResetIpAttempts = new Map();
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -43,7 +69,15 @@ function persistPasswordResetChallenges() {
     JSON.stringify([...passwordResetChallenges.entries()]),
     { mode: 0o600 }
   );
-  fs.renameSync(temporaryFile, PASSWORD_RESET_CHALLENGES_FILE);
+  try {
+    fs.renameSync(temporaryFile, PASSWORD_RESET_CHALLENGES_FILE);
+  } catch (error) {
+    if (!["EPERM", "EEXIST", "ENOTEMPTY"].includes(error.code)) {
+      throw error;
+    }
+    fs.copyFileSync(temporaryFile, PASSWORD_RESET_CHALLENGES_FILE);
+    fs.unlinkSync(temporaryFile);
+  }
 }
 
 if (fs.existsSync(PASSWORD_RESET_CHALLENGES_FILE)) {
@@ -201,6 +235,33 @@ function createSmtpTransporter() {
   });
 }
 
+function getPasswordResetBaseUrl() {
+  const configuredUrl = process.env.PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL;
+  if (configuredUrl) {
+    let baseUrl;
+    try {
+      baseUrl = new URL(configuredUrl);
+    } catch {
+      throw new Error("Password reset link requires a valid PUBLIC_APP_URL.");
+    }
+    if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
+      throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
+    }
+    return baseUrl;
+  }
+
+  const localAddress = Object.values(os.networkInterfaces())
+    .flat()
+    .find(address => address && address.family === "IPv4" && !address.internal &&
+      (/^10\./.test(address.address) ||
+        /^192\.168\./.test(address.address) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(address.address)));
+  if (!localAddress) {
+    throw new Error("No local network address is available for a password reset link.");
+  }
+  return new URL(`http://${localAddress.address}:${PORT}`);
+}
+
 function isTwilioConfigured() {
   const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
@@ -274,13 +335,20 @@ async function sendPasswordResetEmail(email, resetLink) {
   }
 
   const htmlResetLink = resetLink.replace(/&/g, "&amp;");
+  const requestedAt = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  }).format(new Date());
   try {
     await createSmtpTransporter().sendMail({
       from: process.env.SMTP_FROM,
       to: email,
-      subject: "Reset your Smart Agriculture password",
-      text: `Use this link to create a new password: ${resetLink}\n\nThis link expires in 10 minutes and can only be used once. If you did not request this, you can ignore this email.`,
-      html: `<p>We received a request to reset your Smart Agriculture password.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 10 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
+      subject: `Reset your Smart Agriculture password - ${requestedAt} IST`,
+      text: `Use this link to create a new password: ${resetLink}\n\nThis link was requested at ${requestedAt} IST and expires in 60 minutes. If you requested multiple reset links, use the email with the latest request time. Each link can only be used once. If you did not request this, you can ignore this email.`,
+      html: `<p>We received a request to reset your Smart Agriculture password at <strong>${requestedAt} IST</strong>.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you requested multiple reset links, use the email with the latest request time. If you did not request this, you can ignore this email.</p>`,
       textEncoding: "quoted-printable"
     });
   } catch (error) {
@@ -474,7 +542,14 @@ app.post("/api/password-reset/request", async (req, res) => {
       removedExpiredChallenges = true;
     }
   }
-  if (removedExpiredChallenges) persistPasswordResetChallenges();
+  if (removedExpiredChallenges) {
+    try {
+      persistPasswordResetChallenges();
+    } catch (error) {
+      console.error("Expired password reset challenges could not be removed:", error.message);
+      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+    }
+  }
   for (const [key, expiresAt] of passwordResetCooldowns) {
     if (expiresAt <= now) passwordResetCooldowns.delete(key);
   }
@@ -490,14 +565,14 @@ app.post("/api/password-reset/request", async (req, res) => {
   }
   const ipAttempts = (passwordResetIpAttempts.get(ipAddress) || [])
     .filter(timestamp => now - timestamp < 15 * 60 * 1000);
-  if (ipAttempts.length >= 5) {
+  if (ipAttempts.length >= 50) {
     return res.status(429).json({ error: "Too many password reset requests. Please try again later." });
   }
   ipAttempts.push(now);
   passwordResetIpAttempts.set(ipAddress, ipAttempts);
 
   const identifierHash = crypto.createHash("sha256").update(normalizedEmail).digest("hex");
-  const cooldownKey = `${ipAddress}:${identifierHash}`;
+  const cooldownKey = identifierHash;
   if (passwordResetCooldowns.has(cooldownKey)) {
     return res.status(429).json({ error: "Please wait before requesting another password reset." });
   }
@@ -517,33 +592,31 @@ app.post("/api/password-reset/request", async (req, res) => {
     userId: account ? String(account.id) : null,
     method: resetChallenge.method,
     tokenHash: passwordResetTokenHash(challengeId, resetChallenge.token),
-    expiresAt: now + 10 * 60 * 1000,
+    expiresAt: now + PASSWORD_RESET_TTL_MS,
     attempts: 0
   });
-  persistPasswordResetChallenges();
+  try {
+    persistPasswordResetChallenges();
+  } catch (error) {
+    passwordResetChallenges.delete(challengeId);
+    passwordResetCooldowns.delete(cooldownKey);
+    console.error("Password reset challenge could not be saved:", error.message);
+    return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+  }
 
   if (account) {
     try {
-      let baseUrl;
-      try {
-        baseUrl = new URL(
-          process.env.PUBLIC_APP_URL ||
-          process.env.RENDER_EXTERNAL_URL ||
-          `http://localhost:${PORT}`
-        );
-      } catch {
-        throw new Error("Password reset link requires a valid PUBLIC_APP_URL in Back end/.env.");
-      }
-      if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-        throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
-      }
-      const resetUrl = new URL("/reset-password", baseUrl);
+      const resetUrl = new URL("/reset-password", getPasswordResetBaseUrl());
       resetUrl.searchParams.set("resetId", challengeId);
       resetUrl.searchParams.set("token", resetChallenge.token);
       await sendPasswordResetEmail(normalizedEmail, resetUrl.toString());
     } catch (error) {
       passwordResetChallenges.delete(challengeId);
-      persistPasswordResetChallenges();
+      try {
+        persistPasswordResetChallenges();
+      } catch (persistError) {
+        console.error("Failed password reset challenge could not be removed:", persistError.message);
+      }
       passwordResetCooldowns.delete(cooldownKey);
       return res.status(503).json({
         error: error.message || "We could not send the password reset link. Check your delivery settings and try again."
@@ -569,7 +642,12 @@ app.post("/api/password-reset/complete", (req, res) => {
   }
   if (!challenge || challenge.expiresAt <= Date.now() || !challenge.userId) {
     passwordResetChallenges.delete(resetId);
-    persistPasswordResetChallenges();
+    try {
+      persistPasswordResetChallenges();
+    } catch (error) {
+      console.error("Expired password reset challenge could not be removed:", error.message);
+      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+    }
     return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
   }
 
@@ -588,7 +666,12 @@ app.post("/api/password-reset/complete", (req, res) => {
       );
   if (challenge.attempts > 5 || !secretIsValid) {
     if (challenge.attempts >= 5) passwordResetChallenges.delete(resetId);
-    persistPasswordResetChallenges();
+    try {
+      persistPasswordResetChallenges();
+    } catch (error) {
+      console.error("Password reset attempts could not be saved:", error.message);
+      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+    }
     return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
   }
 
@@ -600,7 +683,12 @@ app.post("/api/password-reset/complete", (req, res) => {
   }
   if (!user) {
     passwordResetChallenges.delete(resetId);
-    persistPasswordResetChallenges();
+    try {
+      persistPasswordResetChallenges();
+    } catch (error) {
+      console.error("Invalid password reset challenge could not be removed:", error.message);
+      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+    }
     return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
   }
 
@@ -611,7 +699,12 @@ app.post("/api/password-reset/complete", (req, res) => {
       passwordResetChallenges.delete(challengeId);
     }
   }
-  persistPasswordResetChallenges();
+  try {
+    persistPasswordResetChallenges();
+  } catch (error) {
+    console.error("Completed password reset challenge could not be removed:", error.message);
+    return res.status(503).json({ error: "Password reset completed, but its reset link could not be invalidated. Contact support." });
+  }
   res.json({
     message: "Password reset successfully. Please log in with your new password.",
     ...(isEmailLink ? { loginIdentifier: user.email } : {})

@@ -18,3 +18,9 @@ npm-debug.log*
 # Runtime data
 Back end/data/*
 Back end/uploads/*
+data/
+Back end/data/
+Back end/uploads/
+.env
+Back end/.env
+node_modules/

@@ -13,6 +13,9 @@ const resetTokenFromLink = resetParams.get("token") || "";
 const registrationCompleted = resetParams.get("registered") === "1";
 const registrationRequested = window.location.pathname === "/register" || resetParams.get("register") === "1";
 const passwordResetCompleted = resetParams.get("reset") === "success";
+const passwordResetLoginIdentifier = passwordResetCompleted
+  ? sessionStorage.getItem("password-reset-login-identifier") || ""
+  : "";
 const hasPasswordResetLink = /^[a-f0-9]{48}$/.test(resetIdFromLink) &&
   /^[a-f0-9]{64}$/.test(resetTokenFromLink);
 let passwordResetIdentifier = "";
@@ -67,8 +70,11 @@ setTheme(localStorage.getItem("agri-theme") || "light");
 window.agriI18n.applyLanguage();
 
 if (passwordResetCompleted) {
+  if (passwordResetLoginIdentifier) {
+    $("#loginForm [name=identifier]").value = passwordResetLoginIdentifier;
+    sessionStorage.removeItem("password-reset-login-identifier");
+  }
   showMessage("Password reset successfully. Please log in with your new password.");
-  window.setTimeout(() => window.location.replace("/login"), 2500);
 }
 
 if (registrationCompleted) {
@@ -159,11 +165,19 @@ $("#resetCompleteBackBtn").addEventListener("click", () => {
 });
 
 async function submitAuth(url, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Cannot connect to the server. Check your internet connection and try again.");
+    }
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -251,8 +265,24 @@ passwordResetCompleteForm.addEventListener("submit", async event => {
     registerPrompt.hidden = false;
     $("#loginForm [name=identifier]").value = passwordResetIdentifier;
     $("#loginForm [name=password]").value = "";
+    if (passwordResetIdentifier) {
+      sessionStorage.setItem("password-reset-login-identifier", passwordResetIdentifier);
+    }
     window.location.assign("/login?reset=success");
   } catch (error) {
+    if (/invalid or expired/i.test(error.message)) {
+      passwordResetCompleteForm.reset();
+      passwordResetCompleteForm.hidden = true;
+      passwordResetRequestForm.hidden = false;
+      loginForm.hidden = true;
+      registerForm.hidden = true;
+      $("#forgotPasswordBtn").hidden = true;
+      passwordResetIdentifier = "";
+      window.history.replaceState({}, "", "/login");
+      showMessage("The password reset link is invalid or expired. Request another reset.");
+      passwordResetRequestForm.querySelector('[name="identifier"]').focus();
+      return;
+    }
     showMessage(error.message);
   } finally {
     button.disabled = false;
@@ -268,7 +298,7 @@ if (hasPasswordResetLink) {
   passwordResetCompleteForm.querySelector('[name="resetId"]').value = resetIdFromLink;
   passwordResetCompleteForm.querySelector('[name="token"]').value = resetTokenFromLink;
   $("#passwordResetCompleteInstructions").textContent =
-    window.agriI18n.translate("Choose a new password to finish resetting your account. This link expires in 15 minutes.");
+    window.agriI18n.translate("Choose a new password to finish resetting your account. This link expires in 60 minutes.");
   showMessage("");
   passwordResetCompleteForm.querySelector('[name="newPassword"]').focus();
   window.history.replaceState({}, "", "/reset-password");

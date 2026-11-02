@@ -65,16 +65,16 @@
 
       <form id="passwordResetRequestForm" hidden>
         <h3>Reset your password</h3>
-        <p>Enter your registered Gmail address. If an account matches, we’ll send a secure reset link.</p>
+        <p>Enter your registered email address. If an account matches, we’ll send a secure reset link.</p>
         <input name="identifier" type="email" placeholder="Registered email address"
-               autocomplete="email" maxlength="254" pattern=".+@gmail\.com" title="Enter your registered Gmail address" required>
+               autocomplete="email" maxlength="254" required>
         <button type="submit">Send reset link</button>
         <button id="resetRequestBackBtn" class="secondary-btn" type="button">Back to login</button>
       </form>
 
       <form id="passwordResetCompleteForm" hidden>
         <h3 id="passwordResetCompleteHeading">Create a new password</h3>
-        <p id="passwordResetCompleteInstructions">Use the one-time link sent to your Gmail address to create a new password. The link expires in 15 minutes.</p>
+        <p id="passwordResetCompleteInstructions">Use the one-time link sent to your registered email address to create a new password. The link expires in 60 minutes.</p>
         <input name="resetId" type="hidden" required>
         <input name="token" type="hidden">
         <label for="resetNewPassword">New Password</label>

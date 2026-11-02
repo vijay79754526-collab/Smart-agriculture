@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -163,6 +164,34 @@ function passwordResetTokenHash(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function getPasswordResetBaseUrl() {
+  if (process.env.NODE_ENV === "production") {
+    const configuredUrl = process.env.PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL;
+    if (!configuredUrl) {
+      throw new Error("Password reset link requires PUBLIC_APP_URL or RENDER_EXTERNAL_URL.");
+    }
+
+    let baseUrl;
+    try {
+      baseUrl = new URL(configuredUrl);
+    } catch {
+      throw new Error("Password reset link requires a valid PUBLIC_APP_URL.");
+    }
+    if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
+      throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
+    }
+    return baseUrl;
+  }
+
+  const localAddress = Object.values(os.networkInterfaces())
+    .flat()
+    .find(address => address && address.family === "IPv4" && !address.internal &&
+      (/^10\./.test(address.address) ||
+        /^192\.168\./.test(address.address) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(address.address)));
+  return new URL(`http://${localAddress?.address || "localhost"}:${PORT}`);
+}
+
 function isEmailConfigured() {
   const host = String(process.env.SMTP_HOST || "").trim();
   const user = String(process.env.SMTP_USER || "").trim();
@@ -267,15 +296,22 @@ async function sendPasswordResetEmail(email, resetLink) {
   }
 
   const htmlResetLink = resetLink.replace(/&/g, "&amp;");
+  const requestedAt = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  }).format(new Date());
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const transporter = createSmtpTransporter();
     try {
       const result = await transporter.sendMail({
         from: String(process.env.SMTP_FROM).trim(),
         to: email,
-        subject: "Reset your Smart Agriculture password",
-        text: `Use this link to create a new password: ${resetLink}\n\nThis link expires in 60 minutes and can only be used once. If you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your Smart Agriculture password.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
+        subject: `Reset your Smart Agriculture password - ${requestedAt} IST`,
+        text: `Use this link to create a new password: ${resetLink}\n\nThis link was requested at ${requestedAt} IST and expires in 60 minutes. If you requested multiple reset links, use the email with the latest request time. Each link can only be used once. If you did not request this, you can ignore this email.`,
+        html: `<p>We received a request to reset your Smart Agriculture password at <strong>${requestedAt} IST</strong>.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you requested multiple reset links, use the email with the latest request time. If you did not request this, you can ignore this email.</p>`,
         textEncoding: "quoted-printable"
       });
       const accepted = Array.isArray(result.accepted) &&
@@ -283,6 +319,10 @@ async function sendPasswordResetEmail(email, resetLink) {
       if (!accepted) {
         throw new Error("The SMTP server did not accept the reset email recipient.");
       }
+      console.info("Password reset email accepted by SMTP.", {
+        messageId: result.messageId,
+        acceptedRecipientCount: result.accepted.length
+      });
       return;
     } catch (error) {
       const isPreConnectionFailure = error.command === "CONN" &&
@@ -580,19 +620,7 @@ app.post("/api/password-reset/request", async (req, res) => {
     saveDB(db);
 
     try {
-      let baseUrl;
-      try {
-        baseUrl = new URL(
-          process.env.PUBLIC_APP_URL ||
-          process.env.RENDER_EXTERNAL_URL ||
-          `http://localhost:${PORT}`
-        );
-      } catch {
-        throw new Error("Password reset link requires a valid PUBLIC_APP_URL in Back end/.env.");
-      }
-      if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-        throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
-      }
+      const baseUrl = getPasswordResetBaseUrl();
       const resetUrl = new URL("/reset-password", baseUrl);
       resetUrl.searchParams.set("resetId", resetId);
       resetUrl.searchParams.set("token", token);
@@ -661,7 +689,8 @@ app.post("/api/password-reset/complete", (req, res) => {
   );
   saveDB(db);
   res.json({
-    message: "Password reset successfully. Please log in with your new password."
+    message: "Password reset successfully. Please log in with your new password.",
+    loginIdentifier: user.email
   });
 });
 
