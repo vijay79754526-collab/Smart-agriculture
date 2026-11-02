@@ -1,7 +1,7 @@
 {
   "name": "smart-agriculture-management",
   "version": "1.0.0",
-  "description": "Smart Agriculture Management App",
+  "description": "Smart Agriculture Management System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

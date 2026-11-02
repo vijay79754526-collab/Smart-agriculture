@@ -299,7 +299,7 @@ app.get("/login", (req, res) => {
 });
 
 app.get("/reset-password", (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "login.html"));
+  res.sendFile(path.join(PUBLIC_DIR, "reset-password.html"));
 });
 
 app.get("/dashboard", (req, res) => {

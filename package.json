@@ -1,21 +1,7 @@
-<<<<<<< HEAD
-{
-  "name": "smart-agriculture",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
-}
-=======
 {
   "name": "smart-agriculture-management",
   "version": "1.0.0",
-  "description": "Smart Agriculture Management App",
+  "description": "Smart Agriculture Management System",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -26,7 +12,6 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "nodemailer": "^10.1.1"
+    "nodemailer": "^7.0.1"
   }
 }
->>>>>>> 4f3aa466d4ed64696b4a7eb95c82d555ab276f4d
