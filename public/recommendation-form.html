@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New crop check · Smart Agriculture</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon">🌱</div>
+      <h1>Smart Agriculture</h1>
+    </div>
+    <nav class="header-actions" aria-label="Main navigation">
+      <a class="header-nav-link" href="/dashboard">Dashboard</a>
+      <a class="header-nav-link" href="/feature/saved-searches">History</a>
+    </nav>
+  </header>
+  <main class="recommendation-page">
+    <div class="dashboard-header">
+      <div>
+        <p class="eyebrow">New crop check</p>
+        <h2>Find suitable crops</h2>
+      </div>
+      <p class="subheading">Enter your soil, weather, season, and location details for a tailored comparison.</p>
+    </div>
+    <section class="panel">
+      <form id="recommendationForm" class="recommendation-form">
+        <label>Soil type
+          <select name="soilType" required>
+            <option value="">Select soil type</option>
+            <option value="alluvial">Alluvial</option>
+            <option value="black">Black</option>
+            <option value="clay">Clay</option>
+            <option value="laterite">Laterite</option>
+            <option value="loamy">Loamy</option>
+            <option value="red">Red</option>
+            <option value="sandy">Sandy</option>
+          </select>
+        </label>
+        <label>Soil pH
+          <input name="ph" type="number" min="0" max="14" step="0.1" placeholder="e.g. 6.5" required>
+        </label>
+        <label>Soil moisture (%)
+          <input name="moisture" type="number" min="0" max="100" step="0.1" placeholder="e.g. 45" required>
+        </label>
+        <label>Planting season
+          <select name="season" required>
+            <option value="">Select season</option>
+            <option value="Summer">Summer</option>
+            <option value="Monsoon">Rainy season (Monsoon)</option>
+            <option value="Winter">Winter</option>
+          </select>
+        </label>
+        <label>Temperature (°C)
+          <input name="temperatureC" type="number" min="-20" max="60" step="0.1" placeholder="e.g. 28" required>
+        </label>
+        <label>Humidity (%)
+          <input name="humidityPercent" type="number" min="0" max="100" step="0.1" placeholder="e.g. 65" required>
+        </label>
+        <label>Daily rainfall (mm)
+          <input name="rainfallMm" type="number" min="0" max="1000" step="0.1" placeholder="e.g. 10" required>
+        </label>
+        <label>State
+          <select name="state" class="state-select" required disabled>
+            <option value="">Select state</option>
+          </select>
+        </label>
+        <label>District
+          <select name="district" class="district-select" required disabled>
+            <option value="">Select district</option>
+          </select>
+        </label>
+        <button type="submit">Show crop recommendations</button>
+      </form>
+      <p id="formMessage" class="form-message" role="status" aria-live="polite"></p>
+      <small>These rule-based results are planning estimates, not a substitute for local agricultural advice.</small>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <img src="/images/agriculture-footer.svg" alt="" aria-hidden="true">
+    <span>Smart Agriculture</span>
+  </footer>
+  <script src="/recommendation-form.js"></script>
+</body>
+</html>

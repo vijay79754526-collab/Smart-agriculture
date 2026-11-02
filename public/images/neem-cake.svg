@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" role="img" aria-labelledby="title">
+  <title id="title">Neem cake soil amendment bag illustration</title>
+  <rect width="240" height="160" rx="18" fill="#f2f6e9"/>
+  <path d="M77 33h86l12 18-8 83H73l-8-83z" fill="#d6c77b" stroke="#837331" stroke-width="4"/>
+  <path d="M77 33l14 18h70l2-18" fill="#eee3a2" stroke="#837331" stroke-width="4"/>
+  <path d="M94 75c8-13 20-18 33-15-4 13-16 21-33 15z" fill="#579050"/>
+  <path d="M114 83c7-14 20-19 34-16-5 14-18 22-34 16z" fill="#78a84b"/>
+  <path d="M113 81l14-18m-13 20l18-4" fill="none" stroke="#38653c" stroke-width="3"/>
+  <text x="120" y="112" text-anchor="middle" fill="#554a21" font-family="Arial,sans-serif" font-size="14" font-weight="700">NEEM CAKE</text>
+</svg>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Crops · Smart Agriculture</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon">🌱</div>
+      <h1>Smart Agriculture</h1>
+    </div>
+    <nav class="header-actions" aria-label="Main navigation">
+      <a class="header-nav-link" href="/dashboard">Dashboard</a>
+      <a class="header-nav-link" href="/crop-history">Crop History</a>
+    </nav>
+  </header>
+  <main class="recommendation-page">
+    <div class="dashboard-header">
+      <div>
+        <p class="eyebrow">Farm management</p>
+        <h2 id="pageHeading">Manage Crops</h2>
+      </div>
+      <p class="subheading">Add a crop or select one of your existing crops to update its details.</p>
+    </div>
+    <section class="panel">
+      <label id="cropPickerLabel">Choose a crop to edit
+        <select id="cropPicker">
+          <option value="">Loading your crops…</option>
+        </select>
+      </label>
+      <p id="manageMessage" class="form-message" role="status" aria-live="polite"></p>
+      <form id="cropDetailsForm" class="recommendation-form" hidden>
+        <label>Crop Name
+          <select name="name" required>
+            <option value="">Select crop</option>
+            <option>Ragi</option>
+            <option>Rice</option>
+            <option>Maize</option>
+            <option>Tomato</option>
+            <option>Onion</option>
+            <option>Wheat</option>
+            <option>Chilli</option>
+            <option>Potato</option>
+            <option>Groundnut</option>
+            <option>Soybean</option>
+            <option>Cotton</option>
+            <option>Sugarcane</option>
+            <option>Banana</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label id="customCropLabel" hidden>Other crop name
+          <input name="customName" maxlength="80" placeholder="Enter crop name">
+        </label>
+        <label>Farm State
+          <input name="state" maxlength="100" autocomplete="address-level1" placeholder="State">
+        </label>
+        <label>Farm District / Location
+          <input name="district" maxlength="100" autocomplete="address-level2" placeholder="District or village">
+        </label>
+        <label>Land Area (acres)
+          <input name="area" type="number" min="0.01" max="1000000" step="0.01" required>
+        </label>
+        <label>Soil Type
+          <select name="soilType">
+            <option value="">Select soil type</option>
+            <option>Alluvial</option>
+            <option>Black</option>
+            <option>Clay</option>
+            <option>Laterite</option>
+            <option>Loamy</option>
+            <option>Red</option>
+            <option>Sandy</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label>Planting Date
+          <input name="plantingDate" type="date">
+        </label>
+        <label>Expected Harvest Date
+          <input name="expectedHarvestDate" type="date">
+        </label>
+        <label>Irrigation Type
+          <select name="irrigationType">
+            <option value="">Select irrigation type</option>
+            <option>Drip</option>
+            <option>Sprinkler</option>
+            <option>Furrow</option>
+            <option>Flood</option>
+            <option>Rain-fed</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label>Fertilizer Details
+          <textarea name="fertilizerDetails" rows="3" maxlength="160" placeholder="Fertilizer type or application plan"></textarea>
+        </label>
+        <label>Crop Status
+          <select name="status" required>
+            <option>Active</option>
+            <option>Planned</option>
+            <option>Harvested</option>
+            <option>Paused</option>
+          </select>
+        </label>
+        <div class="crop-form-actions">
+          <button id="saveCropButton" type="submit">Save Changes</button>
+          <button id="changeCropButton" class="secondary-btn" type="button">Change Crop</button>
+          <button id="addCropButton" type="submit" hidden>Add New Crop</button>
+          <a id="cancelCropButton" class="secondary-link" href="/dashboard">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <img src="/images/agriculture-footer.svg" alt="" aria-hidden="true">
+    <span>Smart Agriculture</span>
+  </footer>
+  <script src="/manage-crops.js"></script>
+</body>
+</html>

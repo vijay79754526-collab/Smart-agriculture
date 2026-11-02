@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" role="img" aria-labelledby="title">
+  <title id="title">Balanced NPK fertilizer bag illustration</title>
+  <rect width="240" height="160" rx="18" fill="#edf3fa"/>
+  <path d="M77 33h86l12 18-8 83H73l-8-83z" fill="#5b91bd" stroke="#315e80" stroke-width="4"/>
+  <path d="M77 33l14 18h70l2-18" fill="#91bad8" stroke="#315e80" stroke-width="4"/>
+  <circle cx="120" cy="77" r="25" fill="#fff"/>
+  <text x="120" y="84" text-anchor="middle" fill="#315e80" font-family="Arial,sans-serif" font-size="17" font-weight="700">NPK</text>
+  <text x="120" y="117" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="12" font-weight="700">SOIL TEST FIRST</text>
+</svg>

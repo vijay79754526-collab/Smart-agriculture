@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard History · Smart Agriculture</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon">🌱</div>
+      <h1>Smart Agriculture</h1>
+    </div>
+    <nav class="header-actions" aria-label="Main navigation">
+      <a class="header-nav-link" href="/dashboard">Dashboard</a>
+      <a class="header-nav-link" href="/history" aria-current="page">History</a>
+    </nav>
+  </header>
+  <main class="recommendation-page dashboard-history-page">
+    <div class="dashboard-header">
+      <div>
+        <p class="eyebrow">Farm records</p>
+        <h2>Dashboard History</h2>
+      </div>
+      <p class="subheading">Archived dashboard data is private to your account.</p>
+    </div>
+    <section class="panel">
+      <div class="history-actions">
+        <p>Select archives to remove them from history.</p>
+        <button id="deleteSelectedHistory" class="danger-btn" type="button" disabled>
+          Delete Selected History
+        </button>
+      </div>
+      <div id="dashboardHistoryList" class="dashboard-history-list" aria-live="polite">
+        <p>Loading dashboard history…</p>
+      </div>
+      <p id="historyMessage" class="form-message" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script src="/history.js"></script>
+</body>
+</html>
