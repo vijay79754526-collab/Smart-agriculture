@@ -11,6 +11,9 @@ require("dotenv").config({
 });
 
 const app = express();
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
@@ -27,6 +30,7 @@ const DB_FILE = path.join(DATA_DIR, "db.json");
 const users = [];
 const passwordResetCooldowns = new Map();
 const passwordResetIpAttempts = new Map();
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -170,14 +174,22 @@ function isEmailConfigured() {
 }
 
 function createSmtpTransporter() {
-  const port = Number(process.env.SMTP_PORT || 587);
+  const port = Number(String(process.env.SMTP_PORT || "587").trim());
+  const secureSetting = String(process.env.SMTP_SECURE || "").trim().toLowerCase() === "true";
+  if (port === 587 && secureSetting) {
+    console.warn("SMTP_SECURE=true is incompatible with SMTP_PORT=587; using STARTTLS.");
+  }
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: String(process.env.SMTP_HOST).trim(),
     port,
-    secure: String(process.env.SMTP_SECURE || "").toLowerCase() === "true" || port === 465,
+    secure: port === 465 || (port !== 587 && secureSetting),
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 60000,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD
+      user: String(process.env.SMTP_USER).trim(),
+      pass: String(process.env.SMTP_PASSWORD).trim()
     }
   });
 }
@@ -255,18 +267,47 @@ async function sendPasswordResetEmail(email, resetLink) {
   }
 
   const htmlResetLink = resetLink.replace(/&/g, "&amp;");
-  try {
-    await createSmtpTransporter().sendMail({
-      from: process.env.SMTP_FROM,
-      to: email,
-      subject: "Reset your Smart Agriculture password",
-      text: `Use this link to create a new password: ${resetLink}\n\nThis link expires in 15 minutes and can only be used once. If you did not request this, you can ignore this email.`,
-      html: `<p>We received a request to reset your Smart Agriculture password.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 15 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
-      textEncoding: "quoted-printable"
-    });
-  } catch (error) {
-    console.error("Password reset email delivery failed:", error.message);
-    throw new Error("Password reset email could not be sent. Check your SMTP settings and try again.");
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const transporter = createSmtpTransporter();
+    try {
+      const result = await transporter.sendMail({
+        from: String(process.env.SMTP_FROM).trim(),
+        to: email,
+        subject: "Reset your Smart Agriculture password",
+        text: `Use this link to create a new password: ${resetLink}\n\nThis link expires in 60 minutes and can only be used once. If you did not request this, you can ignore this email.`,
+        html: `<p>We received a request to reset your Smart Agriculture password.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
+        textEncoding: "quoted-printable"
+      });
+      const accepted = Array.isArray(result.accepted) &&
+        result.accepted.some(address => String(address).toLowerCase() === email.toLowerCase());
+      if (!accepted) {
+        throw new Error("The SMTP server did not accept the reset email recipient.");
+      }
+      return;
+    } catch (error) {
+      const isPreConnectionFailure = error.command === "CONN" &&
+        ["ESOCKET", "ECONNECTION", "ETIMEDOUT", "ECONNRESET", "EPIPE", "EAI_AGAIN"]
+          .includes(error.code);
+      if (attempt === 1 && isPreConnectionFailure) {
+        console.warn("Password reset email SMTP connection failed before delivery; retrying once.", {
+          code: error.code,
+          command: error.command,
+          causeCode: error.cause?.code
+        });
+        await new Promise(resolve => setTimeout(resolve, 750));
+        continue;
+      }
+
+      console.error("Password reset email delivery failed:", {
+        message: error.message || error.cause?.message || "No SMTP error message was provided.",
+        code: error.code || error.cause?.code,
+        responseCode: error.responseCode,
+        command: error.command
+      });
+      throw new Error("Password reset email could not be sent. Check your SMTP settings and try again.");
+    } finally {
+      transporter.close();
+    }
   }
 }
 
@@ -284,7 +325,7 @@ app.get("/register", (req, res) => {
 });
 
 app.get("/reset-password", (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "login.html"));
+  res.sendFile(path.join(__dirname, "..", "public", "reset-password.html"));
 });
 
 app.get("/dashboard", (req, res) => {
@@ -475,11 +516,11 @@ app.post("/api/login", (req, res) => {
 app.post("/api/password-reset/request", async (req, res) => {
   const identifier = String(req.body?.identifier || "").trim();
   const normalizedEmail = identifier.toLowerCase();
-  const isEmailIdentifier = /^[^\s@]+@gmail\.com$/.test(normalizedEmail) &&
+  const isEmailIdentifier = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) &&
     normalizedEmail.length <= 254;
   if (!isEmailIdentifier) {
     return res.status(400).json({
-      error: "Enter your registered Gmail address."
+      error: "Enter a valid email address."
     });
   }
 
@@ -496,14 +537,14 @@ app.post("/api/password-reset/request", async (req, res) => {
   }
   const ipAttempts = (passwordResetIpAttempts.get(ipAddress) || [])
     .filter(timestamp => now - timestamp < 15 * 60 * 1000);
-  if (ipAttempts.length >= 5) {
+  if (ipAttempts.length >= 50) {
     return res.status(429).json({ error: "Too many password reset requests. Please try again later." });
   }
   ipAttempts.push(now);
   passwordResetIpAttempts.set(ipAddress, ipAttempts);
 
   const identifierHash = crypto.createHash("sha256").update(normalizedEmail).digest("hex");
-  const cooldownKey = `${ipAddress}:${identifierHash}`;
+  const cooldownKey = identifierHash;
   if (passwordResetCooldowns.has(cooldownKey)) {
     return res.status(429).json({ error: "Please wait before requesting another password reset." });
   }
@@ -517,13 +558,22 @@ app.post("/api/password-reset/request", async (req, res) => {
     const resetId = crypto.randomBytes(24).toString("hex");
     const token = crypto.randomBytes(32).toString("hex");
     db.passwordResetTokens = db.passwordResetTokens.filter(
-      entry => String(entry.userId) !== String(account.id)
+      entry => Number(entry.expiresAt) > now
     );
+    const activeAccountTokens = db.passwordResetTokens
+      .filter(entry => String(entry.userId) === String(account.id))
+      .sort((left, right) => left.expiresAt - right.expiresAt);
+    if (activeAccountTokens.length >= 5) {
+      const oldestTokenId = activeAccountTokens[0].id;
+      db.passwordResetTokens = db.passwordResetTokens.filter(
+        entry => entry.id !== oldestTokenId
+      );
+    }
     db.passwordResetTokens.push({
       id: resetId,
       userId: account.id,
       tokenHash: passwordResetTokenHash(token),
-      expiresAt: now + 15 * 60 * 1000,
+      expiresAt: now + PASSWORD_RESET_TTL_MS,
       attempts: 0,
       createdAt: new Date(now).toISOString()
     });
@@ -554,6 +604,10 @@ app.post("/api/password-reset/request", async (req, res) => {
         entry => entry.id !== resetId
       );
       saveDB(failedDb);
+      passwordResetCooldowns.delete(cooldownKey);
+      return res.status(503).json({
+        error: "Password reset email could not be sent. Check your SMTP settings and try again."
+      });
     }
   }
 
@@ -571,7 +625,7 @@ app.post("/api/password-reset/complete", (req, res) => {
       newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
     return res.status(400).json({ error: "Enter a valid reset link and a new password with 8 to 72 bytes." });
   }
-  if (newPassword !== confirmPassword) {
+  if (confirmPassword && newPassword !== confirmPassword) {
     return res.status(400).json({ error: "New password and confirmation do not match." });
   }
 
