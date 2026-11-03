@@ -24,8 +24,12 @@ const DEPLOYED_PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_DIR = fs.existsSync(DEPLOYED_PUBLIC_DIR)
   ? DEPLOYED_PUBLIC_DIR
   : path.join(__dirname, "..", "public");
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
-const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, "uploads"));
+const DATA_DIR = path.join("/tmp", "smart-agriculture", "data");
+
+const UPLOAD_DIR = path.join("/tmp", "smart-agriculture", "uploads");
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const users = [];
 const passwordResetCooldowns = new Map();
@@ -164,8 +168,6 @@ function passwordResetSecretHash(resetId, secret) {
     .update(`${resetId}:${secret}`)
     .digest("hex");
 }
-
-function isEmailConfigured() {
   const host = String(process.env.SMTP_HOST || "").trim();
   const user = String(process.env.SMTP_USER || "").trim();
   const password = String(process.env.SMTP_PASSWORD || "").trim();
