@@ -17,10 +17,13 @@ For port `465`, use `SMTP_SECURE=true`; port `587` uses STARTTLS, even if the
 secure flag is accidentally set to true.
 
 For local development, put these settings in `Back end/.env`. For the hosted
-Render app, add them separately in the service's **Environment** settings;
-local `.env` values are not deployed. Redeploy after changing the hosted
-settings. If delivery fails, the app reports the failure and the server log
-contains the mail-provider error. The reset form must use the same email
+Render app, add `SMTP_USER` (the sending Gmail address), `SMTP_PASSWORD` (a
+Google App Password with spaces removed), and `SMTP_FROM` (the same Gmail
+address) in the service's **Environment** settings; the Render blueprint sets
+the public Gmail host and port defaults. Local `.env` values are not deployed.
+Save the hosted settings so Render redeploys the service. If delivery fails,
+the app reports the failure and the server log contains the mail-provider
+error. Check Gmail's Spam and Promotions folders as well. The reset form must use the same email
 address that was registered; reset requests for other identifiers do not send
 mail. Local reset emails use this computer's LAN address even if
 `PUBLIC_APP_URL` in `.env` points to the hosted site, because local reset tokens

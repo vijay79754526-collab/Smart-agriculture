@@ -20,11 +20,11 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: SMTP_HOST
-        sync: false
+        value: smtp.gmail.com
       - key: SMTP_PORT
-        sync: false
+        value: "587"
       - key: SMTP_SECURE
-        sync: false
+        value: "false"
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASSWORD
