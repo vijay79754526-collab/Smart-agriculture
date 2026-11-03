@@ -365,7 +365,11 @@ app.get("/register", (req, res) => {
 });
 
 app.get("/reset-password", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "reset-password.html"));
+  const deployedResetPage = path.join(PUBLIC_DIR, "reset-password.html");
+  const resetPage = fs.existsSync(deployedResetPage)
+    ? deployedResetPage
+    : path.join(__dirname, "..", "public", "reset-password.html");
+  res.sendFile(resetPage);
 });
 
 app.get("/dashboard", (req, res) => {
