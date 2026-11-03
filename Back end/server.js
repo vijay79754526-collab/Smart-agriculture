@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -31,7 +30,7 @@ const DB_FILE = path.join(DATA_DIR, "db.json");
 const users = [];
 const passwordResetCooldowns = new Map();
 const passwordResetIpAttempts = new Map();
-const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 5 * 60 * 1000;
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -160,36 +159,10 @@ function isValidMobileNumber(value) {
   return /^\+91[6-9]\d{9}$/.test(value);
 }
 
-function passwordResetTokenHash(token) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
-function getPasswordResetBaseUrl() {
-  if (process.env.NODE_ENV === "production") {
-    const configuredUrl = process.env.PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL;
-    if (!configuredUrl) {
-      throw new Error("Password reset link requires PUBLIC_APP_URL or RENDER_EXTERNAL_URL.");
-    }
-
-    let baseUrl;
-    try {
-      baseUrl = new URL(configuredUrl);
-    } catch {
-      throw new Error("Password reset link requires a valid PUBLIC_APP_URL.");
-    }
-    if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-      throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
-    }
-    return baseUrl;
-  }
-
-  const localAddress = Object.values(os.networkInterfaces())
-    .flat()
-    .find(address => address && address.family === "IPv4" && !address.internal &&
-      (/^10\./.test(address.address) ||
-        /^192\.168\./.test(address.address) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(address.address)));
-  return new URL(`http://${localAddress?.address || "localhost"}:${PORT}`);
+function passwordResetSecretHash(resetId, secret) {
+  return crypto.createHmac("sha256", JWT_SECRET)
+    .update(`${resetId}:${secret}`)
+    .digest("hex");
 }
 
 function isEmailConfigured() {
@@ -290,12 +263,11 @@ async function sendRegistrationSms(user) {
   }
 }
 
-async function sendPasswordResetEmail(email, resetLink) {
+async function sendPasswordResetCode(email, code) {
   if (!isEmailConfigured()) {
     throw new Error("Email password reset is not configured.");
   }
 
-  const htmlResetLink = resetLink.replace(/&/g, "&amp;");
   const requestedAt = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
     hour: "2-digit",
@@ -309,9 +281,9 @@ async function sendPasswordResetEmail(email, resetLink) {
       const result = await transporter.sendMail({
         from: String(process.env.SMTP_FROM).trim(),
         to: email,
-        subject: `Reset your Smart Agriculture password - ${requestedAt} IST`,
-        text: `Use this link to create a new password: ${resetLink}\n\nThis link was requested at ${requestedAt} IST and expires in 60 minutes. If you requested multiple reset links, use the email with the latest request time. Each link can only be used once. If you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your Smart Agriculture password at <strong>${requestedAt} IST</strong>.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you requested multiple reset links, use the email with the latest request time. If you did not request this, you can ignore this email.</p>`,
+        subject: `Your Smart Agriculture password reset code - ${requestedAt} IST`,
+        text: `Your password reset code is ${code}. It expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.`,
+        html: `<p>Your Smart Agriculture password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>This code expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
         textEncoding: "quoted-printable"
       });
       const accepted = Array.isArray(result.accepted) &&
@@ -598,37 +570,27 @@ app.post("/api/password-reset/request", async (req, res) => {
   const account = [...db.users, ...users].find(user =>
     String(user.email || "").toLowerCase() === normalizedEmail
   );
-  if (account) {
-    const resetId = crypto.randomBytes(24).toString("hex");
-    const token = crypto.randomBytes(32).toString("hex");
-    db.passwordResetTokens = db.passwordResetTokens.filter(
-      entry => Number(entry.expiresAt) > now
-    );
-    const activeAccountTokens = db.passwordResetTokens
-      .filter(entry => String(entry.userId) === String(account.id))
-      .sort((left, right) => left.expiresAt - right.expiresAt);
-    if (activeAccountTokens.length >= 5) {
-      const oldestTokenId = activeAccountTokens[0].id;
-      db.passwordResetTokens = db.passwordResetTokens.filter(
-        entry => entry.id !== oldestTokenId
-      );
-    }
-    db.passwordResetTokens.push({
-      id: resetId,
-      userId: account.id,
-      tokenHash: passwordResetTokenHash(token),
-      expiresAt: now + PASSWORD_RESET_TTL_MS,
-      attempts: 0,
-      createdAt: new Date(now).toISOString()
-    });
-    saveDB(db);
+  const resetId = crypto.randomBytes(24).toString("hex");
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  db.passwordResetTokens = db.passwordResetTokens.filter(entry =>
+    Number(entry.expiresAt) > now &&
+    (!account || String(entry.userId) !== String(account.id))
+  );
+  db.passwordResetTokens.push({
+    id: resetId,
+    userId: account ? account.id : null,
+    method: "email-otp",
+    codeHash: passwordResetSecretHash(resetId, code),
+    resetTokenHash: null,
+    expiresAt: now + PASSWORD_RESET_TTL_MS,
+    attempts: 0,
+    createdAt: new Date(now).toISOString()
+  });
+  saveDB(db);
 
+  if (account) {
     try {
-      const baseUrl = getPasswordResetBaseUrl();
-      const resetUrl = new URL("/reset-password", baseUrl);
-      resetUrl.searchParams.set("resetId", resetId);
-      resetUrl.searchParams.set("token", token);
-      await sendPasswordResetEmail(account.email, resetUrl.toString());
+      await sendPasswordResetCode(account.email, code);
     } catch (error) {
       console.error("Password reset request could not be completed:", error.message);
       const failedDb = readDB();
@@ -638,53 +600,90 @@ app.post("/api/password-reset/request", async (req, res) => {
       saveDB(failedDb);
       passwordResetCooldowns.delete(cooldownKey);
       return res.status(503).json({
-        error: "Password reset email could not be sent. Check your SMTP settings and try again."
+        error: "Password reset code could not be sent. Check your SMTP settings and try again."
       });
     }
   }
 
   res.json({
-    message: "If an account matches those details, a password reset link has been sent."
+    resetId,
+    message: "If an account matches those details, a 6-digit reset code has been sent. It expires in 5 minutes."
   });
+});
+
+app.post("/api/password-reset/verify", (req, res) => {
+  const resetId = String(req.body?.resetId || "");
+  const code = String(req.body?.code || "").trim();
+  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: "Enter the 6-digit code from your email." });
+  }
+
+  const db = readDB();
+  const challenge = db.passwordResetTokens.find(entry =>
+    entry.id === resetId && entry.method === "email-otp"
+  );
+  if (!challenge || challenge.expiresAt <= Date.now() ||
+      !challenge.userId || challenge.resetTokenHash) {
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
+  }
+
+  challenge.attempts = Number(challenge.attempts || 0) + 1;
+  const submittedHash = Buffer.from(passwordResetSecretHash(resetId, code), "hex");
+  const storedHash = Buffer.from(String(challenge.codeHash || ""), "hex");
+  const codeIsValid = storedHash.length === submittedHash.length &&
+    crypto.timingSafeEqual(submittedHash, storedHash);
+  if (challenge.attempts > 5 || !codeIsValid) {
+    if (challenge.attempts >= 5) {
+      db.passwordResetTokens = db.passwordResetTokens.filter(entry => entry.id !== resetId);
+    }
+    saveDB(db);
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
+  }
+
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  challenge.codeHash = null;
+  challenge.resetTokenHash = passwordResetSecretHash(resetId, resetToken);
+  challenge.verifiedAt = Date.now();
+  saveDB(db);
+  res.json({ resetToken });
 });
 
 app.post("/api/password-reset/complete", (req, res) => {
   const resetId = String(req.body?.resetId || "");
-  const token = String(req.body?.token || "");
+  const resetToken = String(req.body?.resetToken || "");
   const newPassword = String(req.body?.newPassword || "");
   const confirmPassword = String(req.body?.confirmPassword || "");
-  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^[a-f0-9]{64}$/.test(token) ||
+  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^[a-f0-9]{64}$/.test(resetToken) ||
       newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
-    return res.status(400).json({ error: "Enter a valid reset link and a new password with 8 to 72 bytes." });
+    return res.status(400).json({ error: "Enter a valid reset code and a new password with 8 to 72 bytes." });
   }
   if (confirmPassword && newPassword !== confirmPassword) {
     return res.status(400).json({ error: "New password and confirmation do not match." });
   }
 
   const db = readDB();
-  const challenge = db.passwordResetTokens.find(entry => entry.id === resetId);
-  if (!challenge || challenge.expiresAt <= Date.now() || !challenge.userId) {
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+  const challenge = db.passwordResetTokens.find(entry =>
+    entry.id === resetId && entry.method === "email-otp"
+  );
+  if (!challenge || challenge.expiresAt <= Date.now() ||
+      !challenge.userId || !challenge.verifiedAt) {
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
   }
 
-  const submittedHash = Buffer.from(passwordResetTokenHash(token), "hex");
-  const storedHash = Buffer.from(challenge.tokenHash, "hex");
-  challenge.attempts = Number(challenge.attempts || 0) + 1;
-  const secretIsValid = storedHash.length === submittedHash.length &&
-    crypto.timingSafeEqual(submittedHash, storedHash);
-  if (challenge.attempts > 5 || !secretIsValid) {
-    if (challenge.attempts >= 5) {
-      db.passwordResetTokens = db.passwordResetTokens.filter(entry => entry.id !== resetId);
-    }
-    saveDB(db);
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+  const submittedHash = Buffer.from(passwordResetSecretHash(resetId, resetToken), "hex");
+  const storedHash = Buffer.from(String(challenge.resetTokenHash || ""), "hex");
+  if (storedHash.length !== submittedHash.length ||
+      !crypto.timingSafeEqual(submittedHash, storedHash)) {
+    return res.status(400).json({ error: "The reset verification has expired. Verify your code again." });
   }
 
   const user = db.users.find(entry => String(entry.id) === String(challenge.userId));
   if (!user) {
-    db.passwordResetTokens = db.passwordResetTokens.filter(entry => entry.id !== resetId);
+    db.passwordResetTokens = db.passwordResetTokens.filter(
+      entry => String(entry.userId) !== String(challenge.userId)
+    );
     saveDB(db);
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
   }
 
   user.passwordHash = bcrypt.hashSync(newPassword, 10);

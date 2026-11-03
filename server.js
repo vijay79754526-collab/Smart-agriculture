@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -53,7 +52,7 @@ const users = [];
 const passwordResetChallenges = new Map();
 const passwordResetCooldowns = new Map();
 const passwordResetIpAttempts = new Map();
-const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 5 * 60 * 1000;
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -89,7 +88,7 @@ if (fs.existsSync(PASSWORD_RESET_CHALLENGES_FILE)) {
     if (/^[a-f0-9]{48}$/.test(challengeId) &&
         challenge && Number.isFinite(challenge.expiresAt) &&
         challenge.expiresAt > Date.now() &&
-        ["email-link", "sms-code"].includes(challenge.method)) {
+        challenge.method === "email-otp") {
       passwordResetChallenges.set(challengeId, challenge);
     }
   }
@@ -235,33 +234,6 @@ function createSmtpTransporter() {
   });
 }
 
-function getPasswordResetBaseUrl() {
-  const configuredUrl = process.env.PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL;
-  if (configuredUrl) {
-    let baseUrl;
-    try {
-      baseUrl = new URL(configuredUrl);
-    } catch {
-      throw new Error("Password reset link requires a valid PUBLIC_APP_URL.");
-    }
-    if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
-      throw new Error("Password reset links require PUBLIC_APP_URL to use HTTP or HTTPS.");
-    }
-    return baseUrl;
-  }
-
-  const localAddress = Object.values(os.networkInterfaces())
-    .flat()
-    .find(address => address && address.family === "IPv4" && !address.internal &&
-      (/^10\./.test(address.address) ||
-        /^192\.168\./.test(address.address) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(address.address)));
-  if (!localAddress) {
-    throw new Error("No local network address is available for a password reset link.");
-  }
-  return new URL(`http://${localAddress.address}:${PORT}`);
-}
-
 function isTwilioConfigured() {
   const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
@@ -329,12 +301,11 @@ async function sendRegistrationSms(user) {
   }
 }
 
-async function sendPasswordResetEmail(email, resetLink) {
+async function sendPasswordResetCode(email, code) {
   if (!isEmailConfigured()) {
     throw new Error("Email password reset is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM in Back end/.env.");
   }
 
-  const htmlResetLink = resetLink.replace(/&/g, "&amp;");
   const requestedAt = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
     hour: "2-digit",
@@ -343,14 +314,18 @@ async function sendPasswordResetEmail(email, resetLink) {
     hour12: true
   }).format(new Date());
   try {
-    await createSmtpTransporter().sendMail({
+    const result = await createSmtpTransporter().sendMail({
       from: process.env.SMTP_FROM,
       to: email,
-      subject: `Reset your Smart Agriculture password - ${requestedAt} IST`,
-      text: `Use this link to create a new password: ${resetLink}\n\nThis link was requested at ${requestedAt} IST and expires in 60 minutes. If you requested multiple reset links, use the email with the latest request time. Each link can only be used once. If you did not request this, you can ignore this email.`,
-      html: `<p>We received a request to reset your Smart Agriculture password at <strong>${requestedAt} IST</strong>.</p><p><a href="${htmlResetLink}">Create a new password</a></p><p>This link expires in 60 minutes and can only be used once. If you requested multiple reset links, use the email with the latest request time. If you did not request this, you can ignore this email.</p>`,
+      subject: `Your Smart Agriculture password reset code - ${requestedAt} IST`,
+      text: `Your password reset code is ${code}. It expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.`,
+      html: `<p>Your Smart Agriculture password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>This code expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
       textEncoding: "quoted-printable"
     });
+    if (!Array.isArray(result.accepted) ||
+        !result.accepted.some(address => String(address).toLowerCase() === email.toLowerCase())) {
+      throw new Error("The SMTP server did not accept the reset email recipient.");
+    }
   } catch (error) {
     console.error("Password reset email delivery failed:", error.message);
     throw new Error("Password reset email could not be sent. Check your SMTP settings and try again.");
@@ -583,15 +558,17 @@ app.post("/api/password-reset/request", async (req, res) => {
     String(user.email || "").toLowerCase() === normalizedEmail
   );
   const challengeId = crypto.randomBytes(24).toString("hex");
-  const resetChallenge = {
-    method: "email-link",
-    token: crypto.randomBytes(32).toString("hex")
-  };
-
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  for (const [activeId, activeChallenge] of passwordResetChallenges) {
+    if (account && activeChallenge.userId === String(account.id)) {
+      passwordResetChallenges.delete(activeId);
+    }
+  }
   passwordResetChallenges.set(challengeId, {
     userId: account ? String(account.id) : null,
-    method: resetChallenge.method,
-    tokenHash: passwordResetTokenHash(challengeId, resetChallenge.token),
+    method: "email-otp",
+    codeHash: passwordResetCodeHash(challengeId, code),
+    resetTokenHash: null,
     expiresAt: now + PASSWORD_RESET_TTL_MS,
     attempts: 0
   });
@@ -606,10 +583,7 @@ app.post("/api/password-reset/request", async (req, res) => {
 
   if (account) {
     try {
-      const resetUrl = new URL("/reset-password", getPasswordResetBaseUrl());
-      resetUrl.searchParams.set("resetId", challengeId);
-      resetUrl.searchParams.set("token", resetChallenge.token);
-      await sendPasswordResetEmail(normalizedEmail, resetUrl.toString());
+      await sendPasswordResetCode(normalizedEmail, code);
     } catch (error) {
       passwordResetChallenges.delete(challengeId);
       try {
@@ -619,52 +593,37 @@ app.post("/api/password-reset/request", async (req, res) => {
       }
       passwordResetCooldowns.delete(cooldownKey);
       return res.status(503).json({
-        error: error.message || "We could not send the password reset link. Check your delivery settings and try again."
+        error: error.message || "We could not send the password reset code. Check your delivery settings and try again."
       });
     }
   }
 
   res.json({
-    method: resetChallenge.method,
-    message: "If an account matches those details, a password reset link has been sent."
+    resetId: challengeId,
+    message: "If an account matches those details, a 6-digit reset code has been sent. It expires in 5 minutes."
   });
 });
 
-app.post("/api/password-reset/complete", (req, res) => {
+app.post("/api/password-reset/verify", (req, res) => {
   const resetId = String(req.body?.resetId || "");
-  const code = String(req.body?.code || "");
-  const token = String(req.body?.token || "");
-  const newPassword = String(req.body?.newPassword || "");
-  const challenge = passwordResetChallenges.get(resetId);
-
-  if (!/^[a-f0-9]{48}$/.test(resetId) || newPassword.length < 8) {
-    return res.status(400).json({ error: "Enter a valid reset link and a new password with at least 8 characters." });
+  const code = String(req.body?.code || "").trim();
+  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: "Enter the 6-digit code from your email." });
   }
-  if (!challenge || challenge.expiresAt <= Date.now() || !challenge.userId) {
-    passwordResetChallenges.delete(resetId);
-    try {
-      persistPasswordResetChallenges();
-    } catch (error) {
-      console.error("Expired password reset challenge could not be removed:", error.message);
-      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
-    }
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+
+  const challenge = passwordResetChallenges.get(resetId);
+  if (!challenge || challenge.method !== "email-otp" ||
+      challenge.expiresAt <= Date.now() || !challenge.userId ||
+      challenge.resetTokenHash) {
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
   }
 
   challenge.attempts += 1;
-  const isEmailLink = challenge.method === "email-link";
-  const secretIsValid = isEmailLink
-    ? /^[a-f0-9]{64}$/.test(token) &&
-      crypto.timingSafeEqual(
-        Buffer.from(passwordResetTokenHash(resetId, token), "hex"),
-        Buffer.from(challenge.tokenHash, "hex")
-      )
-    : /^\d{6}$/.test(code) &&
-      crypto.timingSafeEqual(
-        Buffer.from(passwordResetCodeHash(resetId, code), "hex"),
-        Buffer.from(challenge.codeHash, "hex")
-      );
-  if (challenge.attempts > 5 || !secretIsValid) {
+  const submittedHash = Buffer.from(passwordResetCodeHash(resetId, code), "hex");
+  const storedHash = Buffer.from(String(challenge.codeHash || ""), "hex");
+  const codeIsValid = storedHash.length === submittedHash.length &&
+    crypto.timingSafeEqual(submittedHash, storedHash);
+  if (challenge.attempts > 5 || !codeIsValid) {
     if (challenge.attempts >= 5) passwordResetChallenges.delete(resetId);
     try {
       persistPasswordResetChallenges();
@@ -672,7 +631,54 @@ app.post("/api/password-reset/complete", (req, res) => {
       console.error("Password reset attempts could not be saved:", error.message);
       return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
     }
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
+  }
+
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  challenge.codeHash = null;
+  challenge.resetTokenHash = passwordResetTokenHash(resetId, resetToken);
+  challenge.verifiedAt = Date.now();
+  try {
+    persistPasswordResetChallenges();
+  } catch (error) {
+    console.error("Verified password reset challenge could not be saved:", error.message);
+    return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+  }
+  res.json({ resetToken });
+});
+
+app.post("/api/password-reset/complete", (req, res) => {
+  const resetId = String(req.body?.resetId || "");
+  const resetToken = String(req.body?.resetToken || "");
+  const newPassword = String(req.body?.newPassword || "");
+  const confirmPassword = String(req.body?.confirmPassword || "");
+
+  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^[a-f0-9]{64}$/.test(resetToken) ||
+      newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res.status(400).json({ error: "Enter a valid reset code and a new password with 8 to 72 bytes." });
+  }
+  if (confirmPassword && newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "New password and confirmation do not match." });
+  }
+  const challenge = passwordResetChallenges.get(resetId);
+  if (!challenge || challenge.method !== "email-otp" ||
+      challenge.expiresAt <= Date.now() || !challenge.userId ||
+      !challenge.verifiedAt) {
+    passwordResetChallenges.delete(resetId);
+    try {
+      persistPasswordResetChallenges();
+    } catch (error) {
+      console.error("Expired password reset challenge could not be removed:", error.message);
+      return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
+    }
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
+  }
+
+  const submittedHash = Buffer.from(passwordResetTokenHash(resetId, resetToken), "hex");
+  const storedHash = Buffer.from(String(challenge.resetTokenHash || ""), "hex");
+  if (storedHash.length !== submittedHash.length ||
+      !crypto.timingSafeEqual(submittedHash, storedHash)) {
+    return res.status(400).json({ error: "The reset verification has expired. Verify your code again." });
   }
 
   const db = readDB();
@@ -689,7 +695,7 @@ app.post("/api/password-reset/complete", (req, res) => {
       console.error("Invalid password reset challenge could not be removed:", error.message);
       return res.status(503).json({ error: "Password reset is temporarily unavailable. Please try again later." });
     }
-    return res.status(400).json({ error: "The password reset link is invalid or expired. Request another reset." });
+    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
   }
 
   user.passwordHash = bcrypt.hashSync(newPassword, 10);
@@ -703,11 +709,11 @@ app.post("/api/password-reset/complete", (req, res) => {
     persistPasswordResetChallenges();
   } catch (error) {
     console.error("Completed password reset challenge could not be removed:", error.message);
-    return res.status(503).json({ error: "Password reset completed, but its reset link could not be invalidated. Contact support." });
+    return res.status(503).json({ error: "Password reset completed, but its verification could not be invalidated. Contact support." });
   }
   res.json({
     message: "Password reset successfully. Please log in with your new password.",
-    ...(isEmailLink ? { loginIdentifier: user.email } : {})
+    loginIdentifier: user.email
   });
 });
 

@@ -65,18 +65,30 @@
 
       <form id="passwordResetRequestForm" hidden>
         <h3>Reset your password</h3>
-        <p>Enter your registered email address. If an account matches, we’ll send a secure reset link.</p>
+        <p>Enter your registered email address and we’ll email a 6-digit reset code.</p>
         <input name="identifier" type="email" placeholder="Registered email address"
                autocomplete="email" maxlength="254" required>
-        <button type="submit">Send reset link</button>
+        <button type="submit">Send reset code</button>
         <button id="resetRequestBackBtn" class="secondary-btn" type="button">Back to login</button>
+      </form>
+
+      <form id="passwordResetVerifyForm" hidden>
+        <h3>Verify your email</h3>
+        <p>Enter the 6-digit code sent to your registered email. The code expires in 5 minutes.</p>
+        <input name="resetId" type="hidden" required>
+        <label for="resetCode">Email verification code</label>
+        <input id="resetCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code" required>
+        <button type="submit">Verify code</button>
+        <button id="resetResendBtn" class="secondary-btn" type="button">Resend code</button>
+        <button id="resetVerifyBackBtn" class="secondary-btn" type="button">Use another email</button>
       </form>
 
       <form id="passwordResetCompleteForm" hidden>
         <h3 id="passwordResetCompleteHeading">Create a new password</h3>
-        <p id="passwordResetCompleteInstructions">Use the one-time link sent to your registered email address to create a new password. The link expires in 60 minutes.</p>
+        <p id="passwordResetCompleteInstructions">Choose a new password to finish resetting your account.</p>
         <input name="resetId" type="hidden" required>
-        <input name="token" type="hidden">
+        <input name="resetToken" type="hidden" required>
         <label for="resetNewPassword">New Password</label>
         <div class="password-field">
           <input id="resetNewPassword" name="newPassword" type="password" placeholder="New password (minimum 8 characters)"
@@ -93,7 +105,7 @@
         <input id="resetConfirmPassword" name="confirmPassword" type="password" placeholder="Confirm new password"
                autocomplete="new-password" minlength="8" required>
         <button type="submit">Reset Password</button>
-        <button id="resetCompleteBackBtn" class="secondary-btn" type="button">Request another reset</button>
+        <button id="resetCompleteBackBtn" class="secondary-btn" type="button">Start over</button>
       </form>
 
       <form id="registerForm" hidden>
