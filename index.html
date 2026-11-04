@@ -313,16 +313,35 @@
         <section class="panel feature-panel" data-feature="market-prices">
           <h3>📈 Market Price Analysis</h3>
           <form id="marketForm">
+            <select name="crop" required>
+              <option value="">Select crop</option>
+              <option>Banana</option>
+              <option>Brinjal</option>
+              <option>Cotton</option>
+              <option>Garlic</option>
+              <option>Ginger</option>
+              <option>Green Chilli</option>
+              <option>Groundnut</option>
+              <option>Maize</option>
+              <option>Mustard</option>
+              <option>Onion</option>
+              <option>Paddy</option>
+              <option>Potato</option>
+              <option>Soyabean</option>
+              <option>Tomato</option>
+              <option>Turmeric</option>
+              <option>Wheat</option>
+            </select>
             <select name="state" class="state-select" required>
               <option value="">Select state</option>
             </select>
             <select name="district" class="district-select" required>
               <option value="">Select district</option>
             </select>
-            <button type="submit">View Market Prices</button>
+            <button type="submit">Search Official Prices</button>
           </form>
           <div id="marketResult" class="result-panel" role="status" aria-live="polite" hidden></div>
-          <small id="marketDataNote">If official mandi prices are unavailable, the list uses guessed India-wide estimates for planning only. Confirm today's prices with your local mandi.</small>
+          <small id="marketDataNote">Prices are sourced from data.gov.in AGMARKNET reports and may be delayed. No estimated or sample prices are shown.</small>
         </section>
 
         <section class="panel feature-panel" data-feature="farm-expenses">
@@ -386,6 +405,6 @@
     <span data-translation-source="Smart Agriculture">Smart Agriculture</span>
   </footer>
   <script src="/i18n.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=202611041733"></script>
 </body>
 </html>

@@ -105,6 +105,19 @@ function populateDistrictSelector(districtSelect, state, selectedDistrict = "") 
 
 function showMessage(selector, message) {
   const element = $(selector);
+  if (selector === "#appMessage" && /requested information was not found|not found|(?:http\s*)?404/i.test(message)) {
+    console.warn("Dashboard request returned no matching resource:", message);
+    element.hidden = false;
+    element.textContent = "";
+    element.dataset.translationSource = "";
+    element.classList.remove("visible");
+    element.classList.add("suppressed");
+    return;
+  }
+  if (selector === "#appMessage") {
+    element.hidden = false;
+    element.classList.remove("suppressed");
+  }
   element.dataset.translationSource = message;
   element.textContent = window.agriI18n.translate(message);
   if (element.id === "diseaseResult") {
@@ -142,7 +155,10 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || "Something went wrong.");
+    const message = response.status === 404
+      ? "The requested information was not found."
+      : `The request could not be completed (HTTP ${response.status}).`;
+    throw new Error(data.error || message);
   }
 
   return data;
@@ -259,60 +275,91 @@ function renderWeatherResult(weather) {
 }
 
 function renderMarketResult(market) {
-  const translate = window.agriI18n.translate;
-  const district = translate(market.district);
-  const location = `${district}, ${translate(market.state)}`;
   const container = $("#marketResult");
   container.replaceChildren();
   container.classList.remove("result-error");
   container.hidden = false;
 
   const heading = document.createElement("p");
-  heading.textContent = market.estimate
-    ? `${location}: ${translate("Indicative estimated prices")}`
-    : `${location}: ${translate("Latest official mandi prices")}`;
+  heading.textContent = `${market.crop || "Crop"} prices in ${market.district}, ${market.state} · ${
+    market.status === "stale" ? "Last known official data" :
+      market.status === "current" ? "Official market data" : "Official prices unavailable"
+  }`;
   container.appendChild(heading);
 
-  const dateNote = document.createElement("p");
-  dateNote.textContent = market.estimate
-    ? translate("These are guessed India-wide planning estimates, not live or district-specific market prices. Confirm today's rate with your local mandi before buying or selling.")
-    : market.arrivalDate
-      ? `${translate("Arrival date")}: ${market.arrivalDate}. ${translate("Wholesale mandi reports may not be updated in real time.")}`
-      : translate("No vegetable or flower prices were reported for this district.");
-  container.appendChild(dateNote);
-
-  if (!market.estimate) {
-    const source = document.createElement("small");
-    source.textContent = `${translate("Source")}: data.gov.in · ${translate("Current Daily Price of Various Commodities from Various Markets (Mandi)")}`;
-    container.appendChild(source);
+  if (market.message) {
+    const message = document.createElement("p");
+    message.textContent = market.message;
+    container.appendChild(message);
   }
-
-  if (!market.prices.length) {
-    return;
+  if (market.fetchedAt) {
+    const fetched = new Date(market.fetchedAt);
+    if (!Number.isNaN(fetched.getTime())) {
+      const timestamp = document.createElement("small");
+      timestamp.textContent = `Retrieved: ${fetched.toLocaleString()} · Latest reported arrival date: ${market.latestArrivalDate || "not provided"}`;
+      container.appendChild(timestamp);
+    }
   }
+  const source = document.createElement("small");
+  source.textContent = `Source: ${market.source || "data.gov.in AGMARKNET"} · Reported prices are ₹ per quintal. Market data may be delayed; compare arrival dates before trading.`;
+  container.appendChild(source);
 
-  ["Vegetables", "Flowers"].forEach(category => {
-    const rows = market.prices.filter(row => row.category === category);
-    if (!rows.length) return;
-
+  const formatPrice = value => new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: 2
+  }).format(value);
+  const appendTable = (title, rows, columns) => {
+    if (!rows || !rows.length) return;
     const subheading = document.createElement("h4");
-    subheading.textContent = translate(category);
+    subheading.textContent = title;
     container.appendChild(subheading);
-
-    rows.forEach(row => {
-      const item = document.createElement("p");
-      const marketName = row.market.replace(/\b(Mandi|Market|Yard)\b/g, word => translate(word));
-      const variety = row.variety ? ` · ${translate(row.variety)}` : "";
-      const formatPrice = value => new Intl.NumberFormat("en-IN", {
-        maximumFractionDigits: 2
-      }).format(value);
-      const unit = translate(row.unit || "per quintal");
-      item.textContent =
-        `${translate(row.crop)}${variety} — ${translate("Min")}: ₹${formatPrice(row.minPrice)} · ${translate("Max")}: ₹${formatPrice(row.maxPrice)} · ${translate("Modal")}: ₹${formatPrice(row.modalPrice)} ${unit}${market.estimate ? "" : ` (${marketName})`}`;
-      container.appendChild(item);
+    const table = document.createElement("table");
+    table.className = "market-price-table";
+    const header = document.createElement("tr");
+    columns.forEach(column => {
+      const cell = document.createElement("th");
+      cell.textContent = column.label;
+      header.appendChild(cell);
     });
-  });
+    table.appendChild(header);
+    rows.forEach(row => {
+      const tr = document.createElement("tr");
+      columns.forEach(column => {
+        const cell = document.createElement("td");
+        const value = column.value(row);
+        cell.textContent = column.price && Number.isFinite(value)
+          ? `₹${formatPrice(value)}`
+          : String(value ?? "—");
+        tr.appendChild(cell);
+      });
+      table.appendChild(tr);
+    });
+    container.appendChild(table);
+  };
 
+  appendTable("Selected district markets", market.prices, [
+    { label: "Market", value: row => row.market },
+    { label: "Minimum", value: row => row.minPrice, price: true },
+    { label: "Maximum", value: row => row.maxPrice, price: true },
+    { label: "Modal", value: row => row.modalPrice, price: true },
+    { label: "Arrival date", value: row => row.arrivalDate }
+  ]);
+  appendTable("State price comparison (distance and transport costs are not provided)", market.comparisons, [
+    { label: "District", value: row => row.district },
+    { label: "Market", value: row => row.market },
+    { label: "Modal ₹/quintal", value: row => row.modalPrice, price: true },
+    { label: "Arrival date", value: row => row.arrivalDate }
+  ]);
+  if (market.comparisons?.length) {
+    const best = market.comparisons[0];
+    const recommendation = document.createElement("p");
+    recommendation.textContent =
+      `Highest reported modal price in this state: ${best.market}, ${best.district} — ₹${formatPrice(best.modalPrice)}/quintal (${best.arrivalDate}). Distance and transport costs are unavailable; verify before traveling.`;
+    container.appendChild(recommendation);
+  }
+  appendTable("90-day modal price trend for the selected district", market.trend, [
+    { label: "Date", value: row => row.date },
+    { label: "Average modal ₹/quintal", value: row => row.modalPrice, price: true }
+  ]);
 }
 
 function renderCropRecommendation(result) {
@@ -818,18 +865,32 @@ $("#marketForm").addEventListener("submit", async event => {
   event.preventDefault();
   clearResult("#marketResult");
   const form = new FormData(event.target);
+  const crop = form.get("crop");
   const state = form.get("state");
   const district = form.get("district");
 
   try {
-    const result = await api(`/api/market?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
-    latestMarket = { ...result, state, district };
+    const result = await api(`/api/market?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
+    latestMarket = { ...result, crop, state, district };
     renderMarketResult(latestMarket);
-    await recordSearch("market-prices", { State: state, District: district });
+    await recordSearch("market-prices", { Crop: crop, State: state, District: district }, latestMarket);
   } catch (error) {
-    showMessage("#marketResult", error.message);
+    showMessage("#marketResult", "Market prices could not be loaded. Check your connection and try again. No sample prices are shown.");
   }
 });
+
+setInterval(async () => {
+  const marketPanel = document.querySelector('.feature-panel[data-feature="market-prices"]');
+  if (!latestMarket || !marketPanel || marketPanel.hidden || document.hidden) return;
+  const { crop, state, district } = latestMarket;
+  try {
+    const result = await api(`/api/market?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
+    latestMarket = { ...result, crop, state, district };
+    renderMarketResult(latestMarket);
+  } catch {
+    showMessage("#marketResult", "Market prices could not be refreshed. The displayed government report is unchanged.");
+  }
+}, 15 * 60 * 1000);
 
 $("#expenseForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -927,6 +988,10 @@ async function loadFeedbacks() {
 }
 
 if (token && currentUser) {
+  $("#appMessage").textContent = "";
+  $("#appMessage").dataset.translationSource = "";
+  $("#appMessage").hidden = false;
+  $("#appMessage").classList.remove("suppressed", "visible");
   window.agriI18n.applyLanguage();
   profileMenuToggle.hidden = false;
   $("#welcome").textContent = window.agriI18n.greeting(currentUser.name);

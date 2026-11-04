@@ -48,8 +48,13 @@
               <dt data-translation-source="Mobile number">Mobile number</dt>
               <dd id="profileAccountMobile"></dd>
             </div>
+            <div>
+              <dt>Farm location</dt>
+              <dd id="profileAccountLocation"></dd>
+            </div>
           </dl>
           <button id="editProfileBtn" class="profile-edit-btn" type="button" data-translation-source="Edit">Edit</button>
+          <a class="profile-history-link" href="/history" data-translation-source="History">History</a>
           <form id="profileForm" class="profile-account-form" hidden>
             <label>
               <span data-translation-source="Name">Name</span>
@@ -64,6 +69,14 @@
               <input name="mobileNumber" type="tel" placeholder="Indian mobile number (10 digits)"
                      autocomplete="tel" inputmode="tel" maxlength="13"
                      pattern="[6-9][0-9]{9}|\+91[6-9][0-9]{9}" required>
+            </label>
+            <label>
+              <span>Farm state</span>
+              <select name="state" class="state-select"><option value="">Select state</option></select>
+            </label>
+            <label>
+              <span>Farm district</span>
+              <select name="district" class="district-select"><option value="">Select district</option></select>
             </label>
             <div class="profile-edit-actions">
               <button type="submit" data-translation-source="Save Profile">Save Profile</button>
@@ -99,12 +112,12 @@
     <section id="dashboard">
       <div class="dashboard-header">
         <div>
+          <a id="featureBackLink" class="back-link feature-back-link" href="/dashboard" data-translation-source="← Back to dashboard" hidden>← Back to dashboard</a>
           <p class="eyebrow">Farm dashboard</p>
           <h2 id="welcome"></h2>
         </div>
         <div class="dashboard-header-actions">
           <p class="subheading">Manage your farm from one place.</p>
-          <a class="secondary-link" href="/history">History</a>
           <button id="resetDashboardBtn" class="danger-btn" type="button">Reset Dashboard</button>
         </div>
       </div>
@@ -120,21 +133,9 @@
           <span class="stat-label">Farm crops</span>
           <strong id="totalCrops">0</strong>
         </article>
-        <article class="stat-card success">
-          <span class="stat-label">Crop checks completed</span>
-          <strong id="completedCropChecks">0</strong>
-        </article>
         <article class="stat-card warning">
           <span class="stat-label">Expenses</span>
           <strong id="totalExpenses">₹0</strong>
-        </article>
-        <article class="stat-card success">
-          <span class="stat-label">Soil reports</span>
-          <strong id="totalSoilTests">0</strong>
-        </article>
-        <article class="stat-card info">
-          <span class="stat-label">Readings</span>
-          <strong id="totalReadings">0</strong>
         </article>
         <article class="stat-card info">
           <span class="stat-label">Irrigation records</span>
@@ -152,7 +153,7 @@
             <p class="eyebrow">Dashboard</p>
             <h3>Feature categories</h3>
           </div>
-          <p class="subheading">Quick access to every farm management area.</p>
+          <p class="subheading">Quick access to your farm tools.</p>
         </div>
 
         <div class="feature-categories" aria-label="Agriculture feature categories">
@@ -164,48 +165,10 @@
           <a class="feature-category" href="/feature/weather-management">Weather</a>
           <a class="feature-category" href="/feature/market-prices">Market Prices</a>
           <a class="feature-category" href="/feature/farm-expenses">Farm Expenses</a>
-          <a class="feature-category" href="/recommendation-form">New crop check</a>
           <a class="feature-category" href="/feature/feedback">Feedback</a>
-          <a class="feature-category" href="/history">History</a>
           <a class="feature-category" href="/feature/irrigation-management">Irrigation</a>
         </div>
       </section>
-
-      <section class="panel dashboard-work-panel">
-        <div class="feature-dashboard-header">
-          <div>
-            <p class="eyebrow">Crop planning</p>
-            <h3>Recommendations and previous work</h3>
-          </div>
-          <div class="dashboard-work-actions">
-            <a class="primary-link" href="/recommendation-form">Start a new crop check</a>
-            <a class="secondary-link" href="/history">View history</a>
-          </div>
-        </div>
-        <ul id="recentWorkList" class="result-list" aria-live="polite"></ul>
-      </section>
-
-      <section class="panel current-crops-panel">
-        <div class="feature-dashboard-header">
-          <div>
-            <p class="eyebrow">Farm management</p>
-            <h3>Current Crop Details</h3>
-          </div>
-          <div class="dashboard-work-actions">
-            <a class="primary-link" href="/manage-crops?mode=add">Add New Crop</a>
-            <a class="secondary-link" href="/manage-crops?mode=edit">Edit Crop</a>
-            <a class="secondary-link" href="/manage-crops?mode=change">Change Crop</a>
-            <a class="secondary-link" href="/crop-history">Crop History</a>
-          </div>
-        </div>
-        <div id="currentCrops" class="current-crops-grid" aria-live="polite">
-          <p>Loading your crops…</p>
-        </div>
-      </section>
-
-      <div class="feature-page-heading" hidden>
-        <a class="back-link" href="/dashboard">← Back to dashboard</a>
-      </div>
 
       <div class="cards">
         <section class="panel feature-panel" data-feature="saved-searches">
@@ -218,7 +181,7 @@
 
         <section class="panel feature-panel" data-feature="crop-recommendations">
           <h3>🌱 Crop Suitability Recommendations</h3>
-          <p>Enter your soil test, planting season, and district to find crops that best match your soil and estimated weather.</p>
+          <p>Rank crops against observed weather and EcoCrop soil/climate ranges for your district.</p>
           <form id="cropRecommendationForm">
             <select name="season" required>
               <option value="">Select season</option>
@@ -228,8 +191,19 @@
             </select>
             <input name="ph" type="number" min="0" max="14" step="0.1"
                    placeholder="Soil pH" required>
-            <input name="moisture" type="number" min="0" max="100" step="0.1"
-                   placeholder="Soil moisture (%)" required>
+            <input name="nitrogen" type="number" min="0" step="any"
+                   placeholder="Nitrogen (soil test value)" required>
+            <input name="phosphorus" type="number" min="0" step="any"
+                   placeholder="Phosphorus (soil test value)" required>
+            <input name="potassium" type="number" min="0" step="any"
+                   placeholder="Potassium (soil test value)" required>
+            <select name="soilType" required>
+              <option value="">Select soil texture</option>
+              <option value="heavy">Heavy</option>
+              <option value="medium">Medium</option>
+              <option value="light">Light</option>
+              <option value="organic">Organic</option>
+            </select>
             <select name="state" class="state-select" required>
               <option value="">Select state</option>
             </select>
@@ -239,7 +213,7 @@
             <button type="submit">Recommend Suitable Crops</button>
           </form>
           <div id="cropRecommendationResult" class="result-panel" role="status" aria-live="polite" hidden></div>
-          <small>Use recent soil-test values. Recommendations use crop guide ranges, season, and the app's district weather estimate; confirm planting decisions with local agricultural guidance.</small>
+          <small>EcoCrop has no crop-specific NPK thresholds, planting calendars, yield, or water-demand values. NPK and season are recorded but not scored. Confirm locally before planting.</small>
         </section>
 
         <section class="panel feature-panel" data-feature="crop-management">
@@ -276,55 +250,13 @@
         <section class="panel feature-panel" data-feature="disease-guidance">
           <h3>🍃 Crop Disease Guidance</h3>
           <form id="diseaseForm">
-            <label>Upload leaf photo (optional)</label>
-            <input name="leaf" type="file" accept="image/jpeg,image/png,image/webp">
-            <label>Describe a symptom</label>
-            <select name="symptom" required>
-              <option value="">Select symptom</option>
-              <option value="spots">Leaf spots</option>
-              <option value="yellow">Yellow leaves</option>
-              <option value="wilt">Wilting</option>
-              <option value="other">Other</option>
-            </select>
-            <select name="state" class="state-select" required>
-              <option value="">Select state</option>
-            </select>
-            <select name="district" class="district-select" required>
-              <option value="">Select district</option>
-            </select>
-            <button>Check Guidance</button>
+            <label>Upload a clear leaf photo (required)</label>
+            <input name="leaf" type="file" accept="image/jpeg,image/png,image/webp" required>
+            <input name="crop" type="text" maxlength="80" placeholder="Crop name (optional)">
+            <button>Analyze Leaf Image</button>
           </form>
+          <small>Real AI diagnosis requires PLANT_ID_API_KEY in Back end/.env. No diagnosis is shown until the provider is configured.</small>
           <div id="diseaseResult" class="disease-result" role="status" aria-live="polite" hidden></div>
-          <details class="disease-more" hidden>
-            <summary>Show more</summary>
-            <div class="disease-more-content">
-              <p class="fertilizer-note">Fertilizers support crop nutrition; they do not cure plant diseases. Choose a product only after a soil test and follow crop-specific local advice.</p>
-              <h4>Soil-test-based fertilizer options</h4>
-              <div class="fertilizer-cards">
-                <article class="fertilizer-card">
-                  <img src="/images/organic-compost.svg" alt="Illustration of an organic compost bag">
-                  <div>
-                    <h5>Well-decomposed compost</h5>
-                    <p>Adds organic matter and supports soil structure. Use mature, clean compost.</p>
-                  </div>
-                </article>
-                <article class="fertilizer-card">
-                  <img src="/images/neem-cake.svg" alt="Illustration of a neem cake soil amendment bag">
-                  <div>
-                    <h5>Neem cake</h5>
-                    <p>An organic soil amendment that can support soil health. It is not a treatment for an active disease.</p>
-                  </div>
-                </article>
-                <article class="fertilizer-card">
-                  <img src="/images/balanced-npk.svg" alt="Illustration of a balanced NPK fertilizer bag">
-                  <div>
-                    <h5>Balanced NPK fertilizer</h5>
-                    <p>Use only the nutrient ratio and dose recommended for your crop and soil-test results.</p>
-                  </div>
-                </article>
-              </div>
-            </div>
-          </details>
         </section>
 
         <section class="panel feature-panel" data-feature="soil-testing">
@@ -350,7 +282,7 @@
           </form>
           <div id="soilResult" class="result-panel" role="status" aria-live="polite" hidden></div>
           <ul id="soilTestList" class="result-list" aria-live="polite"></ul>
-          <small>Use measured values from a soil test; units depend on your test method.</small>
+          <small>Use measured values from a soil test. Crop ranking requires the units reported by your local lab for future NPK-specific guidance.</small>
         </section>
 
         <section class="panel feature-panel" data-feature="weather-management">
@@ -394,16 +326,35 @@
         <section class="panel feature-panel" data-feature="market-prices">
           <h3>📈 Market Price Analysis</h3>
           <form id="marketForm">
+            <select name="crop" required>
+              <option value="">Select crop</option>
+              <option>Banana</option>
+              <option>Brinjal</option>
+              <option>Cotton</option>
+              <option>Garlic</option>
+              <option>Ginger</option>
+              <option>Green Chilli</option>
+              <option>Groundnut</option>
+              <option>Maize</option>
+              <option>Mustard</option>
+              <option>Onion</option>
+              <option>Paddy</option>
+              <option>Potato</option>
+              <option>Soyabean</option>
+              <option>Tomato</option>
+              <option>Turmeric</option>
+              <option>Wheat</option>
+            </select>
             <select name="state" class="state-select" required>
               <option value="">Select state</option>
             </select>
             <select name="district" class="district-select" required>
               <option value="">Select district</option>
             </select>
-            <button type="submit">View Market Prices</button>
+            <button type="submit">Search Official Prices</button>
           </form>
           <div id="marketResult" class="result-panel" role="status" aria-live="polite" hidden></div>
-          <small id="marketDataNote">If official mandi prices are unavailable, the list uses guessed India-wide estimates for planning only. Confirm today's prices with your local mandi.</small>
+          <small id="marketDataNote">Prices are sourced from data.gov.in AGMARKNET reports and may be delayed. Live prices require DATA_GOV_IN_API_KEY in Back end/.env; no estimated or sample prices are shown.</small>
         </section>
 
         <section class="panel feature-panel" data-feature="farm-expenses">
@@ -467,6 +418,6 @@
     <span data-translation-source="Smart Agriculture">Smart Agriculture</span>
   </footer>
   <script src="/i18n.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=202611041820"></script>
 </body>
 </html>

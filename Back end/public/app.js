@@ -51,6 +51,7 @@ async function loadStateDistrictData() {
   document.querySelectorAll(".state-select, .district-select").forEach(select => {
     select.disabled = false;
   });
+  if (currentUser) renderProfileDetails(currentUser);
 }
 
 function populateLocationSelectors() {
@@ -105,6 +106,19 @@ function populateDistrictSelector(districtSelect, state, selectedDistrict = "") 
 
 function showMessage(selector, message) {
   const element = $(selector);
+  if (selector === "#appMessage" && /requested information was not found|not found|(?:http\s*)?404/i.test(message)) {
+    console.warn("Dashboard request returned no matching resource:", message);
+    element.hidden = false;
+    element.textContent = "";
+    element.dataset.translationSource = "";
+    element.classList.remove("visible");
+    element.classList.add("suppressed");
+    return;
+  }
+  if (selector === "#appMessage") {
+    element.hidden = false;
+    element.classList.remove("suppressed");
+  }
   element.dataset.translationSource = message;
   element.textContent = window.agriI18n.translate(message);
   if (element.id === "diseaseResult") {
@@ -113,7 +127,6 @@ function showMessage(selector, message) {
     result.textContent = window.agriI18n.translate(message);
     element.appendChild(result);
     element.hidden = false;
-    $(".disease-more").hidden = true;
   } else if (element.classList.contains("result-panel")) {
     element.hidden = false;
     element.classList.add("result-error");
@@ -142,7 +155,10 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || "Something went wrong.");
+    const message = response.status === 404
+      ? "The requested information was not found."
+      : `The request could not be completed (HTTP ${response.status}).`;
+    throw new Error(data.error || message);
   }
 
   return data;
@@ -238,125 +254,151 @@ async function loadSearchHistory() {
   renderSearchHistory(await api("/api/search-history"));
 }
 
-async function loadDashboardHistory() {
-  try {
-    const entries = await api("/api/search-history");
-    const list = $("#recentWorkList");
-    list.replaceChildren();
-    const recentEntries = entries
-      .filter(entry => entry.feature === "crop-recommendations" && entry.result)
-      .slice(0, 3);
-    if (!recentEntries.length) {
-      const empty = document.createElement("li");
-      empty.textContent = "No completed crop checks yet. Start a new crop check to see your recommendations here.";
-      list.appendChild(empty);
-      return;
-    }
-    recentEntries.forEach(entry => {
-      const item = document.createElement("li");
-      const heading = document.createElement("strong");
-      heading.textContent = `${
-        entry.feature === "crop-recommendations" ? "Crop check · " : ""
-      }${entry.summary} · ${new Date(entry.createdAt).toLocaleString()}`;
-      item.appendChild(heading);
-      const cropNames = document.createElement("p");
-      cropNames.textContent = (entry.result.recommendations || [])
-        .map(recommendation => `${recommendation.crop} (${recommendation.score}%)`)
-        .join(" · ") || "No crop matches were saved.";
-      item.appendChild(cropNames);
-      const recommendationLink = document.createElement("a");
-      recommendationLink.href = `/recommendation-results?id=${encodeURIComponent(entry.id)}`;
-      recommendationLink.textContent = "View recommendations";
-      item.appendChild(recommendationLink);
-      list.appendChild(item);
-    });
-  } catch (error) {
-    showMessage("#appMessage", error.message);
-  }
-}
-
 function renderDiseaseResult(result) {
   const container = $("#diseaseResult");
   container.replaceChildren();
 
-  const guidance = document.createElement("p");
-  guidance.textContent = window.agriI18n.translate(result.result);
-  container.appendChild(guidance);
-
+  const heading = document.createElement("h4");
+  heading.textContent = result.healthy ? "Healthy leaf detected" : result.diseaseName || "Disease result unavailable";
+  container.appendChild(heading);
+  if (result.crop) {
+    const crop = document.createElement("p");
+    crop.textContent = `Crop: ${result.crop}`;
+    container.appendChild(crop);
+  }
+  const confidence = document.createElement("p");
+  confidence.textContent = `Confidence: ${result.confidencePercent}%`;
+  container.appendChild(confidence);
+  const appendDetail = (label, value) => {
+    const section = document.createElement("p");
+    const items = Array.isArray(value) ? value : value ? [value] : [];
+    const format = item => typeof item === "string" ? item :
+      item.name || item.description || JSON.stringify(item);
+    section.textContent = `${label}: ${items.length ? items.map(format).join("; ") : "Not provided by the diagnosis provider."}`;
+    container.appendChild(section);
+  };
+  appendDetail("Symptoms", result.symptoms);
+  appendDetail("Causes", result.causes);
+  appendDetail("Prevention", result.prevention);
+  appendDetail("Organic/biological treatments", result.organicTreatments);
+  appendDetail("Chemical treatments", result.chemicalTreatments);
+  if (result.alternativeDiagnoses?.length) {
+    const alternatives = document.createElement("p");
+    alternatives.textContent = `Other AI suggestions: ${result.alternativeDiagnoses
+      .map(item => `${item.name} (${item.confidencePercent}%)`)
+      .join("; ")}`;
+    container.appendChild(alternatives);
+  }
+  const provider = document.createElement("small");
+  provider.textContent = `Assessment provider: ${result.provider || "AI image assessment"}.`;
+  container.appendChild(provider);
   const caution = document.createElement("small");
-  caution.textContent = window.agriI18n.translate(result.note);
+  caution.textContent = result.note;
   container.appendChild(caution);
   container.hidden = false;
-  $(".disease-more").hidden = false;
 }
 
 function renderWeatherResult(weather) {
-  const translate = window.agriI18n.translate;
-  const district = translate(weather.district);
-  const location = `${district}, ${translate(weather.state)}`;
-
   const result = $("#weatherResult");
   result.classList.remove("result-error");
   result.hidden = false;
-  result.textContent =
-    `${location}: ${translate(weather.mode)}: ${translate("Temperature")} ${weather.temperatureC}°C, ${translate("humidity")} ${weather.humidityPercent}%, ${translate("rainfall")} ${weather.rainfallMm} mm. ${window.agriI18n.format("Weather is suitable for routine crop monitoring and careful irrigation planning in {district}.", { district })}`;
+  result.replaceChildren();
+  const current = document.createElement("p");
+  current.textContent = `${weather.location} · ${weather.source} · ${weather.mode}: ${weather.temperatureC}°C, humidity ${weather.humidityPercent}%, precipitation ${weather.rainfallMm} mm, wind ${weather.windSpeedKmh} km/h.`;
+  result.appendChild(current);
+  weather.daily.forEach(day => {
+    const forecast = document.createElement("p");
+    forecast.textContent = `${day.date}: ${day.minTemperatureC}–${day.maxTemperatureC}°C · ${day.rainfallMm} mm rain · wind up to ${day.maxWindSpeedKmh} km/h`;
+    result.appendChild(forecast);
+  });
 }
 
 function renderMarketResult(market) {
-  const translate = window.agriI18n.translate;
-  const district = translate(market.district);
-  const location = `${district}, ${translate(market.state)}`;
   const container = $("#marketResult");
   container.replaceChildren();
   container.classList.remove("result-error");
   container.hidden = false;
 
   const heading = document.createElement("p");
-  heading.textContent = market.estimate
-    ? `${location}: ${translate("Indicative estimated prices")}`
-    : `${location}: ${translate("Latest official mandi prices")}`;
+  heading.textContent = `${market.crop || "Crop"} prices in ${market.district}, ${market.state} · ${
+    market.status === "stale" ? "Last known official data" :
+      market.status === "current" ? "Official market data" : "Official prices unavailable"
+  }`;
   container.appendChild(heading);
 
-  const dateNote = document.createElement("p");
-  dateNote.textContent = market.estimate
-    ? translate("These are guessed India-wide planning estimates, not live or district-specific market prices. Confirm today's rate with your local mandi before buying or selling.")
-    : market.arrivalDate
-      ? `${translate("Arrival date")}: ${market.arrivalDate}. ${translate("Wholesale mandi reports may not be updated in real time.")}`
-      : translate("No vegetable or flower prices were reported for this district.");
-  container.appendChild(dateNote);
-
-  if (!market.estimate) {
-    const source = document.createElement("small");
-    source.textContent = `${translate("Source")}: data.gov.in · ${translate("Current Daily Price of Various Commodities from Various Markets (Mandi)")}`;
-    container.appendChild(source);
+  if (market.message) {
+    const message = document.createElement("p");
+    message.textContent = market.message;
+    container.appendChild(message);
   }
-
-  if (!market.prices.length) {
-    return;
+  if (market.fetchedAt) {
+    const fetched = new Date(market.fetchedAt);
+    if (!Number.isNaN(fetched.getTime())) {
+      const timestamp = document.createElement("small");
+      timestamp.textContent = `Retrieved: ${fetched.toLocaleString()} · Latest reported arrival date: ${market.latestArrivalDate || "not provided"}`;
+      container.appendChild(timestamp);
+    }
   }
+  const source = document.createElement("small");
+  source.textContent = `Source: ${market.source || "data.gov.in AGMARKNET"} · Reported prices are ₹ per quintal. Market data may be delayed; compare arrival dates before trading.`;
+  container.appendChild(source);
 
-  ["Vegetables", "Flowers"].forEach(category => {
-    const rows = market.prices.filter(row => row.category === category);
-    if (!rows.length) return;
-
+  const formatPrice = value => new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: 2
+  }).format(value);
+  const appendTable = (title, rows, columns) => {
+    if (!rows || !rows.length) return;
     const subheading = document.createElement("h4");
-    subheading.textContent = translate(category);
+    subheading.textContent = title;
     container.appendChild(subheading);
-
-    rows.forEach(row => {
-      const item = document.createElement("p");
-      const marketName = row.market.replace(/\b(Mandi|Market|Yard)\b/g, word => translate(word));
-      const variety = row.variety ? ` · ${translate(row.variety)}` : "";
-      const formatPrice = value => new Intl.NumberFormat("en-IN", {
-        maximumFractionDigits: 2
-      }).format(value);
-      const unit = translate(row.unit || "per quintal");
-      item.textContent =
-        `${translate(row.crop)}${variety} — ${translate("Min")}: ₹${formatPrice(row.minPrice)} · ${translate("Max")}: ₹${formatPrice(row.maxPrice)} · ${translate("Modal")}: ₹${formatPrice(row.modalPrice)} ${unit}${market.estimate ? "" : ` (${marketName})`}`;
-      container.appendChild(item);
+    const table = document.createElement("table");
+    table.className = "market-price-table";
+    const header = document.createElement("tr");
+    columns.forEach(column => {
+      const cell = document.createElement("th");
+      cell.textContent = column.label;
+      header.appendChild(cell);
     });
-  });
+    table.appendChild(header);
+    rows.forEach(row => {
+      const tr = document.createElement("tr");
+      columns.forEach(column => {
+        const cell = document.createElement("td");
+        const value = column.value(row);
+        cell.textContent = column.price && Number.isFinite(value)
+          ? `₹${formatPrice(value)}`
+          : String(value ?? "—");
+        tr.appendChild(cell);
+      });
+      table.appendChild(tr);
+    });
+    container.appendChild(table);
+  };
 
+  appendTable("Selected district markets", market.prices, [
+    { label: "Market", value: row => row.market },
+    { label: "Minimum", value: row => row.minPrice, price: true },
+    { label: "Maximum", value: row => row.maxPrice, price: true },
+    { label: "Modal", value: row => row.modalPrice, price: true },
+    { label: "Arrival date", value: row => row.arrivalDate }
+  ]);
+  appendTable("State price comparison (distance and transport costs are not provided)", market.comparisons, [
+    { label: "District", value: row => row.district },
+    { label: "Market", value: row => row.market },
+    { label: "Modal ₹/quintal", value: row => row.modalPrice, price: true },
+    { label: "Arrival date", value: row => row.arrivalDate }
+  ]);
+  if (market.comparisons?.length) {
+    const best = market.comparisons[0];
+    const recommendation = document.createElement("p");
+    recommendation.textContent =
+      `Highest reported modal price in this state: ${best.market}, ${best.district} — ₹${formatPrice(best.modalPrice)}/quintal (${best.arrivalDate}). Distance and transport costs are unavailable; verify before traveling.`;
+    container.appendChild(recommendation);
+  }
+  appendTable("90-day modal price trend for the selected district", market.trend, [
+    { label: "Date", value: row => row.date },
+    { label: "Average modal ₹/quintal", value: row => row.modalPrice, price: true }
+  ]);
 }
 
 function renderCropRecommendation(result) {
@@ -378,10 +420,21 @@ function renderCropRecommendation(result) {
   const summary = document.createElement("p");
   summary.textContent = translate(
     bestScore >= 75
-      ? "Crops below match most of the soil, season, and weather guide ranges."
-      : "No strong match found. These are the closest crops; consider adjusting the season or checking soil conditions."
+      ? "Top crops align with most available EcoCrop climate and soil ranges."
+      : "These are the closest matches to the available EcoCrop ranges. Confirm locally before planting."
   );
   container.appendChild(summary);
+  if (result.soilTest) {
+    const submittedInputs = document.createElement("p");
+    submittedInputs.textContent =
+      `Entered for ${result.season}: soil texture ${result.soilTest.soilTexture}; N ${result.soilTest.nitrogen}, P ${result.soilTest.phosphorus}, K ${result.soilTest.potassium}. NPK and season are recorded but are not scored.`;
+    container.appendChild(submittedInputs);
+  }
+  if (!result.recommendations.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "No crops in the source dataset matched the submitted conditions.";
+    container.appendChild(empty);
+  }
 
   result.recommendations.forEach((recommendation, index) => {
     const card = document.createElement("article");
@@ -391,10 +444,11 @@ function renderCropRecommendation(result) {
     cropHeading.textContent =
       `${index + 1}. ${translate(recommendation.crop)} — ${recommendation.score}% ${translate("match")}`;
     card.appendChild(cropHeading);
-    const matchingFactors = recommendation.factors.filter(factor => factor.suitable).length;
-    const scoreSummary = document.createElement("p");
-    scoreSummary.textContent = `${matchingFactors} / ${recommendation.factors.length} ${translate("conditions match")}`;
-    card.appendChild(scoreSummary);
+    if (recommendation.commonNames?.length) {
+      const commonNames = document.createElement("p");
+      commonNames.textContent = `EcoCrop common names: ${recommendation.commonNames.join(", ")}`;
+      card.appendChild(commonNames);
+    }
 
     const factorList = document.createElement("ul");
     factorList.className = "recommendation-factors";
@@ -402,28 +456,47 @@ function renderCropRecommendation(result) {
       const item = document.createElement("li");
       const formatValue = value => {
         if (factor.key === "Season") return translateSeason(value);
-        const unit = factor.key === "Soil pH" ? "" :
+        const unit = factor.unit || (factor.key === "Soil pH" ? "" :
           factor.key === "Estimated temperature" ? "°C" :
-            factor.key === "Estimated daily rainfall" ? ` ${translate("mm")}` : "%";
+            factor.key === "Estimated daily rainfall" ? ` ${translate("mm")}` : "%");
         return `${value}${unit}`;
       };
-      const range = factor.range.map(formatValue).join("–");
+      const range = factor.range
+        ? factor.range.map(formatValue).join("–")
+        : "No crop-specific source range";
       const value = formatValue(factor.value);
+      const fit = factor.suitable
+        ? translate("Within optimal source range")
+        : factor.tolerated
+          ? translate("Within tolerated source range")
+          : factor.range
+            ? translate("Outside crop guide range")
+            : "";
       item.textContent =
-        `${translate(factor.key)}: ${value} — ${translate(factor.suitable ? "Within crop guide range" : "Outside crop guide range")} (${translate("Preferred range")}: ${range})`;
+        `${translate(factor.key)}: ${value} — ${fit} (${translate("Preferred range")}: ${range})`;
       factorList.appendChild(item);
     });
     card.appendChild(factorList);
+    if (recommendation.growingDurationDays) {
+      const duration = document.createElement("p");
+      duration.textContent = `Growing duration in EcoCrop: ${recommendation.growingDurationDays[0]}–${recommendation.growingDurationDays[1]} days`;
+      card.appendChild(duration);
+    }
     container.appendChild(card);
   });
 
   const weather = document.createElement("p");
   weather.textContent = window.agriI18n.format(
-    "District weather estimate: {temperature}°C, humidity {humidity}%, rainfall {rainfall} mm. These weather estimates are included in the crop-match score.",
+    Number.isFinite(result.weather.annualRainfallMm)
+      ? "Observed weather: {temperature}°C, humidity {humidity}%, current precipitation {rainfall} mm. Annual observed rainfall: {annualRainfall} mm."
+      : "Observed weather: {temperature}°C, humidity {humidity}%, current precipitation {rainfall} mm.",
     {
       temperature: result.weather.temperatureC,
       humidity: result.weather.humidityPercent,
-      rainfall: result.weather.rainfallMm
+      rainfall: result.weather.rainfallMm,
+      annualRainfall: Number.isFinite(result.weather.annualRainfallMm)
+        ? Math.round(result.weather.annualRainfallMm)
+        : ""
     }
   );
   container.appendChild(weather);
@@ -437,10 +510,7 @@ async function loadDashboardSummary() {
   try {
     const summary = await api("/api/dashboard");
     $("#totalCrops").textContent = summary.totalCrops;
-    $("#completedCropChecks").textContent = summary.completedCropChecks;
     $("#totalExpenses").textContent = `₹${Number(summary.totalExpenses || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-    $("#totalSoilTests").textContent = summary.totalSoilTests;
-    $("#totalReadings").textContent = summary.totalReadings;
     $("#totalIrrigationRecords").textContent = summary.totalIrrigationRecords;
     $("#totalHealthScans").textContent = summary.totalHealthScans;
   } catch (error) {
@@ -465,6 +535,7 @@ function showFeaturePage() {
   });
 
   const featureId = window.location.pathname.match(/^\/feature\/([^/]+)$/)?.[1];
+  $("#featureBackLink").hidden = true;
   if (!featureId) return;
 
   const targetPanel = document.querySelector(`.feature-panel[data-feature="${featureId}"]`);
@@ -475,10 +546,9 @@ function showFeaturePage() {
 
   targetPanel.hidden = false;
   $("#overviewCards").hidden = true;
-  $(".dashboard-work-panel").hidden = true;
   $("#firstLoginWelcome").hidden = true;
   $(".feature-dashboard-panel").hidden = true;
-  $(".feature-page-heading").hidden = false;
+  $("#featureBackLink").hidden = false;
 
   const heading = targetPanel.querySelector("h3").textContent.trim();
   const category = document.querySelector(`.feature-category[href="/feature/${featureId}"]`);
@@ -569,10 +639,19 @@ function renderProfileDetails(profile) {
   $("#profileAccountName").textContent = profile.name || "";
   $("#profileAccountEmail").textContent = profile.email || "";
   $("#profileAccountMobile").textContent = profile.mobileNumber || "";
+  $("#profileAccountLocation").textContent = profile.state && profile.district
+    ? `${profile.district}, ${profile.state}`
+    : "Not set";
   const form = $("#profileForm");
   form.elements.namedItem("name").value = profile.name || "";
   form.elements.namedItem("email").value = profile.email || "";
   form.elements.namedItem("mobileNumber").value = profile.mobileNumber || "";
+  form.elements.namedItem("state").value = profile.state || "";
+  populateDistrictSelector(
+    form.elements.namedItem("district"),
+    profile.state || "",
+    profile.district || ""
+  );
 }
 
 function setProfileEditing(editing) {
@@ -604,7 +683,9 @@ $("#profileForm").addEventListener("submit", async event => {
       body: JSON.stringify({
         name: form.get("name"),
         email: form.get("email"),
-        mobileNumber: form.get("mobileNumber")
+        mobileNumber: form.get("mobileNumber"),
+        state: form.get("state"),
+        district: form.get("district")
       })
     });
     currentUser = result.user;
@@ -756,8 +837,14 @@ async function loadCrops() {
 $("#diseaseForm").addEventListener("submit", async event => {
   event.preventDefault();
   const form = new FormData(event.target);
-  $("#diseaseResult").hidden = true;
-  $(".disease-more").hidden = true;
+  latestDiseaseResult = null;
+  clearResult("#diseaseResult");
+  const button = event.target.querySelector('button[type="submit"], button:not([type])');
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Analyzing leaf image...";
+  }
 
   try {
     const result = await api("/api/disease", {
@@ -767,13 +854,14 @@ $("#diseaseForm").addEventListener("submit", async event => {
 
     latestDiseaseResult = result;
     renderDiseaseResult(result);
-    await recordSearch("disease-guidance", {
-      Symptom: form.get("symptom"),
-      State: form.get("state"),
-      District: form.get("district")
-    }, result);
+    await recordSearch("disease-guidance", { Crop: form.get("crop") || "Not specified" }, result);
   } catch (error) {
     showMessage("#diseaseResult", error.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
   }
 });
 
@@ -843,18 +931,17 @@ $("#cropRecommendationForm").addEventListener("submit", async event => {
   const district = form.get("district");
 
   try {
-    const weather = await api(
-      `/api/weather?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`
-    );
     const result = await api("/api/crop-recommendations", {
       method: "POST",
       body: JSON.stringify({
         season: form.get("season"),
         ph: Number(form.get("ph")),
-        moisture: Number(form.get("moisture")),
+        nitrogen: Number(form.get("nitrogen")),
+        phosphorus: Number(form.get("phosphorus")),
+        potassium: Number(form.get("potassium")),
+        soilType: form.get("soilType"),
         state,
-        district,
-        weather
+        district
       })
     });
     latestCropRecommendation = result;
@@ -862,7 +949,10 @@ $("#cropRecommendationForm").addEventListener("submit", async event => {
     await recordSearch("crop-recommendations", {
       Season: form.get("season"),
       "Soil pH": Number(form.get("ph")),
-      "Soil moisture": Number(form.get("moisture")),
+      Nitrogen: Number(form.get("nitrogen")),
+      Phosphorus: Number(form.get("phosphorus")),
+      Potassium: Number(form.get("potassium")),
+      "Soil texture": form.get("soilType"),
       State: state,
       District: district
     }, result);
@@ -892,18 +982,32 @@ $("#marketForm").addEventListener("submit", async event => {
   event.preventDefault();
   clearResult("#marketResult");
   const form = new FormData(event.target);
+  const crop = form.get("crop");
   const state = form.get("state");
   const district = form.get("district");
 
   try {
-    const result = await api(`/api/market?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
-    latestMarket = { ...result, state, district };
+    const result = await api(`/api/market?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
+    latestMarket = { ...result, crop, state, district };
     renderMarketResult(latestMarket);
-    await recordSearch("market-prices", { State: state, District: district }, latestMarket);
+    await recordSearch("market-prices", { Crop: crop, State: state, District: district }, latestMarket);
   } catch (error) {
-    showMessage("#marketResult", error.message);
+    showMessage("#marketResult", "Market prices could not be loaded. Check your connection and try again. No sample prices are shown.");
   }
 });
+
+setInterval(async () => {
+  const marketPanel = document.querySelector('.feature-panel[data-feature="market-prices"]');
+  if (!latestMarket || !marketPanel || marketPanel.hidden || document.hidden) return;
+  const { crop, state, district } = latestMarket;
+  try {
+    const result = await api(`/api/market?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
+    latestMarket = { ...result, crop, state, district };
+    renderMarketResult(latestMarket);
+  } catch {
+    showMessage("#marketResult", "Market prices could not be refreshed. The displayed government report is unchanged.");
+  }
+}, 15 * 60 * 1000);
 
 $("#expenseForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -954,8 +1058,9 @@ async function loadExpenses() {
 
 $("#irrigationForm").addEventListener("submit", async event => {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const button = event.currentTarget.querySelector('button[type="submit"]');
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const button = formElement.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
     await api("/api/irrigation", {
@@ -968,7 +1073,7 @@ $("#irrigationForm").addEventListener("submit", async event => {
         notes: form.get("notes")
       })
     });
-    event.currentTarget.reset();
+    formElement.reset();
     await loadIrrigationRecords();
     showMessage("#appMessage", "Irrigation record saved.");
   } catch (error) {
@@ -1033,8 +1138,7 @@ $("#resetDashboardBtn").addEventListener("click", async () => {
       loadFeedbacks(),
       loadIrrigationRecords(),
       loadSoilTests(),
-      loadDashboardSummary(),
-      loadDashboardHistory()
+      loadDashboardSummary()
     ]);
   } catch (error) {
     showMessage("#appMessage", error.message);
@@ -1092,11 +1196,19 @@ async function loadFeedbacks() {
 }
 
 if (token && currentUser) {
+  $("#appMessage").textContent = "";
+  $("#appMessage").dataset.translationSource = "";
+  $("#appMessage").hidden = false;
+  $("#appMessage").classList.remove("suppressed", "visible");
   window.agriI18n.applyLanguage();
   profileMenuToggle.hidden = false;
   $("#welcome").textContent = window.agriI18n.greeting(currentUser.name);
   showFeaturePage();
-  $("#firstLoginWelcome").hidden = new URLSearchParams(window.location.search).get("welcome") !== "1";
+  const dashboardParams = new URLSearchParams(window.location.search);
+  $("#firstLoginWelcome").hidden = dashboardParams.get("welcome") !== "1";
+  if (dashboardParams.get("login") === "success") {
+    showMessage("#appMessage", "Login successful.");
+  }
   loadStateDistrictData().catch(error => {
     console.error(error);
     showMessage("#appMessage", error.message);
@@ -1107,7 +1219,6 @@ if (token && currentUser) {
   loadIrrigationRecords();
   loadFeedbacks();
   loadDashboardSummary();
-  loadDashboardHistory();
   if (window.location.pathname === "/feature/saved-searches") {
     loadSearchHistory().catch(error => {
       console.error(error);

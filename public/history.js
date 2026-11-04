@@ -16,6 +16,12 @@ const collectionLabels = {
   marketPrices: "Market price records",
   searchHistory: "Saved recommendations and searches"
 };
+const hiddenHistoryFields = new Set(["id", "userid", "cropid", "requestkey", "token", "resetid", "resettoken"]);
+const specialFieldLabels = {
+  ph: "Soil pH",
+  createdAt: "Date",
+  updatedAt: "Updated"
+};
 
 if (!token || !sessionStorage.getItem("agri-user")) {
   window.location.replace("/login");
@@ -49,6 +55,37 @@ function updateDeleteButton() {
   deleteSelectedButton.disabled = selectedArchiveIds().length === 0;
 }
 
+function historyFieldLabel(key) {
+  return specialFieldLabels[key] ||
+    key.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/^./, letter => letter.toUpperCase());
+}
+
+function formatHistoryValue(value, fieldName = "") {
+  if (value === null || value === undefined || value === "") return "";
+  if (Array.isArray(value)) {
+    return value.map(item => formatHistoryValue(item, fieldName)).filter(Boolean).join("; ");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .filter(([key, nestedValue]) =>
+        !hiddenHistoryFields.has(key.toLowerCase()) &&
+        nestedValue !== null && nestedValue !== undefined && nestedValue !== ""
+      )
+      .map(([key, nestedValue]) => `${historyFieldLabel(key)}: ${formatHistoryValue(nestedValue, key)}`)
+      .join(" · ");
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" &&
+      /(?:date|time|at)$/i.test(fieldName) &&
+      /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toLocaleString();
+  }
+  return String(value);
+}
+
 function appendArchiveDetails(container, records) {
   Object.entries(collectionLabels).forEach(([key, label]) => {
     const entries = records?.[key] || [];
@@ -57,13 +94,36 @@ function appendArchiveDetails(container, records) {
     section.className = "history-record-group";
     const heading = document.createElement("h4");
     heading.textContent = `${label} (${entries.length})`;
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = "View records";
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(entries, null, 2);
-    details.append(summary, pre);
-    section.append(heading, details);
+    section.appendChild(heading);
+    entries.forEach((record, index) => {
+      const card = document.createElement("article");
+      card.className = "history-record";
+      const recordHeading = document.createElement("h5");
+      recordHeading.textContent = `Record ${index + 1}`;
+      card.appendChild(recordHeading);
+      const fields = document.createElement("dl");
+      fields.className = "history-record-fields";
+      Object.entries(record)
+        .filter(([field, value]) =>
+          !hiddenHistoryFields.has(field.toLowerCase()) &&
+          value !== null && value !== undefined && value !== ""
+        )
+        .forEach(([field, value]) => {
+          const term = document.createElement("dt");
+          term.textContent = historyFieldLabel(field);
+          const detail = document.createElement("dd");
+          detail.textContent = formatHistoryValue(value, field) || "—";
+          fields.append(term, detail);
+        });
+      if (fields.childElementCount) {
+        card.appendChild(fields);
+      } else {
+        const empty = document.createElement("p");
+        empty.textContent = "No displayable details for this record.";
+        card.appendChild(empty);
+      }
+      section.appendChild(card);
+    });
     container.appendChild(section);
   });
 }

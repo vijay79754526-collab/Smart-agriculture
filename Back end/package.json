@@ -12,6 +12,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "nodemailer": "^10.1.1"
+    "nodemailer": "^10.1.1",
+    "resend": "^6.37.0"
   }
 }

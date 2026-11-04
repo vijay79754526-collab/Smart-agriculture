@@ -2,21 +2,12 @@ const $ = selector => document.querySelector(selector);
 
 const loginForm = $("#loginForm");
 const registerForm = $("#registerForm");
-const passwordResetRequestForm = $("#passwordResetRequestForm");
-const passwordResetVerifyForm = $("#passwordResetVerifyForm");
-const passwordResetCompleteForm = $("#passwordResetCompleteForm");
 const authMessage = $("#authMessage");
 const themeToggle = $("#themeToggle");
 const registerPrompt = $("#registerPrompt");
 const resetParams = new URLSearchParams(window.location.search);
 const registrationCompleted = resetParams.get("registered") === "1";
 const registrationRequested = window.location.pathname === "/register" || resetParams.get("register") === "1";
-const passwordResetCompleted = resetParams.get("reset") === "success";
-const passwordResetLoginIdentifier = passwordResetCompleted
-  ? sessionStorage.getItem("password-reset-login-identifier") || ""
-  : "";
-let passwordResetIdentifier = "";
-let passwordResetChallengeId = "";
 
 if (sessionStorage.getItem("agri-token") && sessionStorage.getItem("agri-user")) {
   window.location.replace("/dashboard");
@@ -67,21 +58,9 @@ function setTheme(theme) {
 setTheme(localStorage.getItem("agri-theme") || "light");
 window.agriI18n.applyLanguage();
 
-if (passwordResetCompleted) {
-  if (passwordResetLoginIdentifier) {
-    $("#loginForm [name=identifier]").value = passwordResetLoginIdentifier;
-    sessionStorage.removeItem("password-reset-login-identifier");
-  }
-  showMessage("Password reset successfully. Please log in with your new password.");
-}
-
 if (registrationCompleted) {
   loginForm.hidden = false;
   registerForm.hidden = true;
-  passwordResetRequestForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  $("#forgotPasswordBtn").hidden = false;
   registerPrompt.hidden = false;
   $("#showLogin").classList.add("active");
   $("#showRegister").classList.remove("active");
@@ -89,10 +68,6 @@ if (registrationCompleted) {
 } else if (registrationRequested) {
   loginForm.hidden = true;
   registerForm.hidden = false;
-  passwordResetRequestForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  $("#forgotPasswordBtn").hidden = true;
   registerPrompt.hidden = true;
   $("#showRegister").classList.add("active");
   $("#showLogin").classList.remove("active");
@@ -105,10 +80,6 @@ themeToggle.addEventListener("click", () => {
 $("#showLogin").addEventListener("click", () => {
   loginForm.hidden = false;
   registerForm.hidden = true;
-  passwordResetRequestForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  $("#forgotPasswordBtn").hidden = false;
   registerPrompt.hidden = false;
   $("#showLogin").classList.add("active");
   $("#showRegister").classList.remove("active");
@@ -118,10 +89,6 @@ $("#showLogin").addEventListener("click", () => {
 $("#showRegister").addEventListener("click", () => {
   loginForm.hidden = true;
   registerForm.hidden = false;
-  passwordResetRequestForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  $("#forgotPasswordBtn").hidden = true;
   registerPrompt.hidden = true;
   $("#showRegister").classList.add("active");
   $("#showLogin").classList.remove("active");
@@ -130,51 +97,6 @@ $("#showRegister").addEventListener("click", () => {
 
 $("#registerPrompt").addEventListener("click", () => {
   $("#showRegister").click();
-});
-
-$("#forgotPasswordBtn").addEventListener("click", () => {
-  const resetEmailInput = $("#passwordResetRequestForm [name=identifier]");
-  resetEmailInput.value = $("#loginForm [name=identifier]").value.trim();
-  if (!resetEmailInput.checkValidity()) resetEmailInput.value = "";
-  passwordResetIdentifier = resetEmailInput.value;
-  loginForm.hidden = true;
-  registerForm.hidden = true;
-  passwordResetRequestForm.hidden = false;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  $("#forgotPasswordBtn").hidden = true;
-  registerPrompt.hidden = true;
-  $("#showLogin").classList.add("active");
-  $("#showRegister").classList.remove("active");
-  showMessage("");
-  resetEmailInput.focus();
-});
-
-$("#resetRequestBackBtn").addEventListener("click", () => {
-  passwordResetRequestForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetCompleteForm.hidden = true;
-  loginForm.hidden = false;
-  $("#forgotPasswordBtn").hidden = false;
-  registerPrompt.hidden = false;
-  showMessage("");
-});
-
-$("#resetVerifyBackBtn").addEventListener("click", () => {
-  passwordResetVerifyForm.reset();
-  passwordResetVerifyForm.hidden = true;
-  passwordResetRequestForm.hidden = false;
-  showMessage("");
-  passwordResetRequestForm.querySelector('[name="identifier"]').focus();
-});
-
-$("#resetCompleteBackBtn").addEventListener("click", () => {
-  passwordResetCompleteForm.reset();
-  passwordResetCompleteForm.hidden = true;
-  passwordResetVerifyForm.hidden = true;
-  passwordResetRequestForm.hidden = false;
-  showMessage("");
-  passwordResetRequestForm.querySelector('[name="identifier"]').focus();
 });
 
 async function submitAuth(url, body) {
@@ -231,121 +153,10 @@ loginForm.addEventListener("submit", async event => {
 
     sessionStorage.setItem("agri-token", result.token);
     sessionStorage.setItem("agri-user", JSON.stringify(result.user));
-    window.location.assign(result.isFirstLogin ? "/dashboard?welcome=1" : "/dashboard");
+    const dashboardParams = new URLSearchParams({ login: "success" });
+    if (result.isFirstLogin) dashboardParams.set("welcome", "1");
+    window.location.assign(`/dashboard?${dashboardParams}`);
   } catch (error) {
     showMessage(error.message);
-  }
-});
-
-passwordResetRequestForm.addEventListener("submit", async event => {
-  event.preventDefault();
-  const button = passwordResetRequestForm.querySelector('button[type="submit"]');
-  button.disabled = true;
-  passwordResetIdentifier = new FormData(passwordResetRequestForm).get("identifier").trim();
-  try {
-    const result = await submitAuth("/api/password-reset/request", {
-      identifier: passwordResetIdentifier
-    });
-    passwordResetChallengeId = result.resetId;
-    passwordResetVerifyForm.querySelector('[name="resetId"]').value = passwordResetChallengeId;
-    passwordResetVerifyForm.querySelector('[name="code"]').value = "";
-    passwordResetRequestForm.hidden = true;
-    passwordResetVerifyForm.hidden = false;
-    showMessage(result.message);
-    passwordResetVerifyForm.querySelector('[name="code"]').focus();
-  } catch (error) {
-    showMessage(error.message);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-$("#resetResendBtn").addEventListener("click", async () => {
-  const button = $("#resetResendBtn");
-  button.disabled = true;
-  try {
-    const result = await submitAuth("/api/password-reset/request", {
-      identifier: passwordResetIdentifier
-    });
-    passwordResetChallengeId = result.resetId;
-    passwordResetVerifyForm.querySelector('[name="resetId"]').value = passwordResetChallengeId;
-    passwordResetVerifyForm.querySelector('[name="code"]').value = "";
-    showMessage(result.message);
-  } catch (error) {
-    showMessage(error.message);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-passwordResetVerifyForm.addEventListener("submit", async event => {
-  event.preventDefault();
-  const button = passwordResetVerifyForm.querySelector('button[type="submit"]');
-  const form = new FormData(passwordResetVerifyForm);
-  button.disabled = true;
-  try {
-    const result = await submitAuth("/api/password-reset/verify", {
-      resetId: form.get("resetId"),
-      code: form.get("code")
-    });
-    passwordResetCompleteForm.querySelector('[name="resetId"]').value = passwordResetChallengeId;
-    passwordResetCompleteForm.querySelector('[name="resetToken"]').value = result.resetToken;
-    passwordResetVerifyForm.hidden = true;
-    passwordResetCompleteForm.hidden = false;
-    showMessage("Code verified. Create a new password.");
-    passwordResetCompleteForm.querySelector('[name="newPassword"]').focus();
-  } catch (error) {
-    showMessage(error.message);
-  } finally {
-    button.disabled = false;
-  }
-});
-
-passwordResetCompleteForm.addEventListener("submit", async event => {
-  event.preventDefault();
-  const form = new FormData(passwordResetCompleteForm);
-  if (form.get("newPassword") !== form.get("confirmPassword")) {
-    showMessage("New password and confirmation do not match.");
-    return;
-  }
-
-  const button = passwordResetCompleteForm.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    await submitAuth("/api/password-reset/complete", {
-      resetId: form.get("resetId"),
-      resetToken: form.get("resetToken"),
-      newPassword: form.get("newPassword"),
-      confirmPassword: form.get("confirmPassword")
-    });
-    passwordResetCompleteForm.reset();
-    passwordResetCompleteForm.hidden = true;
-    loginForm.hidden = false;
-    $("#forgotPasswordBtn").hidden = false;
-    registerPrompt.hidden = false;
-    $("#loginForm [name=identifier]").value = passwordResetIdentifier;
-    $("#loginForm [name=password]").value = "";
-    if (passwordResetIdentifier) {
-      sessionStorage.setItem("password-reset-login-identifier", passwordResetIdentifier);
-    }
-    window.location.assign("/login?reset=success");
-  } catch (error) {
-    if (/invalid or expired|verification has expired/i.test(error.message)) {
-      passwordResetCompleteForm.reset();
-      passwordResetCompleteForm.hidden = true;
-      passwordResetVerifyForm.hidden = true;
-      passwordResetRequestForm.hidden = false;
-      loginForm.hidden = true;
-      registerForm.hidden = true;
-      $("#forgotPasswordBtn").hidden = true;
-      passwordResetIdentifier = "";
-      window.history.replaceState({}, "", "/login");
-      showMessage("Password reset verification expired. Request a new code.");
-      passwordResetRequestForm.querySelector('[name="identifier"]').focus();
-      return;
-    }
-    showMessage(error.message);
-  } finally {
-    button.disabled = false;
   }
 });
