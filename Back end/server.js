@@ -19,7 +19,11 @@ if (process.env.NODE_ENV === "production") {
 
 app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "smart-agri-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("A secure JWT_SECRET of at least 32 characters is required.");
+}
 
 // Folders and database
 const DEPLOYED_PUBLIC_DIR = path.join(__dirname, "public");
@@ -34,9 +38,6 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const users = [];
-const passwordResetCooldowns = new Map();
-const passwordResetIpAttempts = new Map();
-const PASSWORD_RESET_TTL_MS = 5 * 60 * 1000;
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -347,14 +348,6 @@ app.get("/register", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "login.html"));
 });
 
-app.get("/reset-password", (req, res) => {
-  const deployedResetPage = path.join(PUBLIC_DIR, "reset-password.html");
-  const resetPage = fs.existsSync(deployedResetPage)
-    ? deployedResetPage
-    : path.join(__dirname, "..", "public", "reset-password.html");
-  res.sendFile(resetPage);
-});
-
 app.get("/dashboard", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
@@ -540,174 +533,7 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-app.post("/api/password-reset/request", async (req, res) => {
-  const identifier = String(req.body?.identifier || "").trim();
-  const normalizedEmail = identifier.toLowerCase();
-  const isEmailIdentifier = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) &&
-    normalizedEmail.length <= 254;
-  if (!isEmailIdentifier) {
-    return res.status(400).json({
-      error: "Enter a valid email address."
-    });
-  }
-
-  const now = Date.now();
-  for (const [key, expiresAt] of passwordResetCooldowns) {
-    if (expiresAt <= now) passwordResetCooldowns.delete(key);
-  }
-
-  const ipAddress = req.ip || req.socket.remoteAddress || "unknown";
-  for (const [address, timestamps] of passwordResetIpAttempts) {
-    const recent = timestamps.filter(timestamp => now - timestamp < 15 * 60 * 1000);
-    if (recent.length) passwordResetIpAttempts.set(address, recent);
-    else passwordResetIpAttempts.delete(address);
-  }
-  const ipAttempts = (passwordResetIpAttempts.get(ipAddress) || [])
-    .filter(timestamp => now - timestamp < 15 * 60 * 1000);
-  if (ipAttempts.length >= 50) {
-    return res.status(429).json({ error: "Too many password reset requests. Please try again later." });
-  }
-  ipAttempts.push(now);
-  passwordResetIpAttempts.set(ipAddress, ipAttempts);
-
-  const identifierHash = crypto.createHash("sha256").update(normalizedEmail).digest("hex");
-  const cooldownKey = identifierHash;
-  if (passwordResetCooldowns.has(cooldownKey)) {
-    return res.status(429).json({ error: "Please wait before requesting another password reset." });
-  }
-  passwordResetCooldowns.set(cooldownKey, now + 60 * 1000);
-
-  const db = readDB();
-  const account = [...db.users, ...users].find(user =>
-    String(user.email || "").toLowerCase() === normalizedEmail
-  );
-  const resetId = crypto.randomBytes(24).toString("hex");
-  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
-  db.passwordResetTokens = db.passwordResetTokens.filter(entry =>
-    Number(entry.expiresAt) > now &&
-    (!account || String(entry.userId) !== String(account.id))
-  );
-  db.passwordResetTokens.push({
-    id: resetId,
-    userId: account ? account.id : null,
-    method: "email-otp",
-    codeHash: passwordResetSecretHash(resetId, code),
-    resetTokenHash: null,
-    expiresAt: now + PASSWORD_RESET_TTL_MS,
-    attempts: 0,
-    createdAt: new Date(now).toISOString()
-  });
-  saveDB(db);
-
-  if (account) {
-    try {
-      await sendPasswordResetCode(account.email, code);
-    } catch (error) {
-      console.error("Password reset request could not be completed:", error.message);
-      const failedDb = readDB();
-      failedDb.passwordResetTokens = failedDb.passwordResetTokens.filter(
-        entry => entry.id !== resetId
-      );
-      saveDB(failedDb);
-      passwordResetCooldowns.delete(cooldownKey);
-      return res.status(503).json({
-        error: "Password reset code could not be sent. Check your SMTP settings and try again."
-      });
-    }
-  }
-
-  res.json({
-    resetId,
-    message: "If an account matches those details, a 6-digit reset code has been sent. It expires in 5 minutes."
-  });
-});
-
-app.post("/api/password-reset/verify", (req, res) => {
-  const resetId = String(req.body?.resetId || "");
-  const code = String(req.body?.code || "").trim();
-  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^\d{6}$/.test(code)) {
-    return res.status(400).json({ error: "Enter the 6-digit code from your email." });
-  }
-
-  const db = readDB();
-  const challenge = db.passwordResetTokens.find(entry =>
-    entry.id === resetId && entry.method === "email-otp"
-  );
-  if (!challenge || challenge.expiresAt <= Date.now() ||
-      !challenge.userId || challenge.resetTokenHash) {
-    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
-  }
-
-  challenge.attempts = Number(challenge.attempts || 0) + 1;
-  const submittedHash = Buffer.from(passwordResetSecretHash(resetId, code), "hex");
-  const storedHash = Buffer.from(String(challenge.codeHash || ""), "hex");
-  const codeIsValid = storedHash.length === submittedHash.length &&
-    crypto.timingSafeEqual(submittedHash, storedHash);
-  if (challenge.attempts > 5 || !codeIsValid) {
-    if (challenge.attempts >= 5) {
-      db.passwordResetTokens = db.passwordResetTokens.filter(entry => entry.id !== resetId);
-    }
-    saveDB(db);
-    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
-  }
-
-  const resetToken = crypto.randomBytes(32).toString("hex");
-  challenge.codeHash = null;
-  challenge.resetTokenHash = passwordResetSecretHash(resetId, resetToken);
-  challenge.verifiedAt = Date.now();
-  saveDB(db);
-  res.json({ resetToken });
-});
-
-app.post("/api/password-reset/complete", (req, res) => {
-  const resetId = String(req.body?.resetId || "");
-  const resetToken = String(req.body?.resetToken || "");
-  const newPassword = String(req.body?.newPassword || "");
-  const confirmPassword = String(req.body?.confirmPassword || "");
-  if (!/^[a-f0-9]{48}$/.test(resetId) || !/^[a-f0-9]{64}$/.test(resetToken) ||
-      newPassword.length < 8 || Buffer.byteLength(newPassword, "utf8") > 72) {
-    return res.status(400).json({ error: "Enter a valid reset code and a new password with 8 to 72 bytes." });
-  }
-  if (confirmPassword && newPassword !== confirmPassword) {
-    return res.status(400).json({ error: "New password and confirmation do not match." });
-  }
-
-  const db = readDB();
-  const challenge = db.passwordResetTokens.find(entry =>
-    entry.id === resetId && entry.method === "email-otp"
-  );
-  if (!challenge || challenge.expiresAt <= Date.now() ||
-      !challenge.userId || !challenge.verifiedAt) {
-    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
-  }
-
-  const submittedHash = Buffer.from(passwordResetSecretHash(resetId, resetToken), "hex");
-  const storedHash = Buffer.from(String(challenge.resetTokenHash || ""), "hex");
-  if (storedHash.length !== submittedHash.length ||
-      !crypto.timingSafeEqual(submittedHash, storedHash)) {
-    return res.status(400).json({ error: "The reset verification has expired. Verify your code again." });
-  }
-
-  const user = db.users.find(entry => String(entry.id) === String(challenge.userId));
-  if (!user) {
-    db.passwordResetTokens = db.passwordResetTokens.filter(
-      entry => String(entry.userId) !== String(challenge.userId)
-    );
-    saveDB(db);
-    return res.status(400).json({ error: "The reset code is invalid or expired. Request a new code." });
-  }
-
-  user.passwordHash = bcrypt.hashSync(newPassword, 10);
-  db.passwordResetTokens = db.passwordResetTokens.filter(
-    entry => String(entry.userId) !== String(challenge.userId)
-  );
-  saveDB(db);
-  res.json({
-    message: "Password reset successfully. Please log in with your new password.",
-    loginIdentifier: user.email
-  });
-});
-
+ 
 app.get("/api/profile", requireAuth, (req, res) => {
   const user = findUserById(req.user.id);
   if (!user) return res.status(404).json({ error: "User profile not found. Please sign in again." });
@@ -762,24 +588,10 @@ app.post("/api/profile/password", requireAuth, (req, res) => {
   const currentPassword = String(req.body?.currentPassword || "");
   const newPassword = String(req.body?.newPassword || "");
   if (!currentPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: "Enter your current password and a new password with at least 8 characters." });
+    ret const now = Date.now();
+  for (const [key, expiresAt] of passwordResetCooldowns) {
+    if (expiresAt <= now) passwordResetCooldowns.delete(key);
   }
-
-  const db = readDB();
-  let user = db.users.find(entry => String(entry.id) === String(req.user.id));
-  if (!user) {
-    user = users.find(entry => String(entry.id) === String(req.user.id));
-    if (user) db.users.push(user);
-  }
-  if (!user) return res.status(404).json({ error: "User profile not found. Please sign in again." });
-  if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
-    return res.status(401).json({ error: "Current password is incorrect." });
-  }
-
-  user.passwordHash = bcrypt.hashSync(newPassword, 10);
-  saveDB(db);
-  res.json({ message: "Password updated successfully." });
-});
 
 app.get("/api/search-history", requireAuth, (req, res) => {
   const history = readDB().searchHistory

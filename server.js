@@ -27,7 +27,11 @@ const PORT = process.env.PORT || 3001;
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
-const JWT_SECRET = process.env.JWT_SECRET || "smart-agri-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("A strong JWT_SECRET must be configured.");
+}
 const PASSWORD_RESET_CODE_SECRET = crypto
   .createHmac("sha256", JWT_SECRET)
   .update("smart-agriculture-password-reset")
