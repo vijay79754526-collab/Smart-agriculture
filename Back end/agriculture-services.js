@@ -7,11 +7,113 @@ const WEATHER_CACHE_MS = 10 * 60 * 1000;
 const geocodeCache = new Map();
 const weatherCache = new Map();
 const climateCache = new Map();
+let boundaryGeocodeQueue = Promise.resolve();
+let lastBoundaryGeocodeAt = 0;
 const districtAliases = {
-  "Bengaluru Urban": "Bengaluru",
-  "Bengaluru Rural": "Bengaluru",
-  Shivamogga: "Shimoga"
+  "Bengaluru Urban": ["Bengaluru", "Bangalore"],
+  "Bengaluru Rural": ["Devanahalli"],
+  Chikkaballapur: ["Chikkaballapura"],
+  Davanagere: ["Davangere"],
+  Chikkamagaluru: ["Chikmagalur"],
+  Kalaburagi: ["Gulbarga"],
+  Mysuru: ["Mysore"],
+  Shivamogga: ["Shimoga"],
+  Vijayapura: ["Bijapur"],
+  Ballari: ["Bellary"],
+  "Dakshina Kannada": ["Mangaluru", "Mangalore"],
+  "Uttara Kannada": ["Karwar"],
+  Vijayanagara: ["Hosapete", "Hospet"],
+  Anantapur: ["Anantapuramu"],
+  Gurugram: ["Gurgaon"],
+  Prayagraj: ["Allahabad"],
+  Ayodhya: ["Faizabad"],
+  "Sri Potti Sriramulu Nellore": ["Nellore"],
+  Sepahijala: ["Sipahijala"]
 };
+const stateAliases = new Map([
+  ["orissa", "odisha"],
+  ["uttaranchal", "uttarakhand"],
+  ["nationalcapitalterritoryofdelhi", "delhi"],
+  ["pondicherry", "puducherry"]
+]);
+
+function normalizePlace(value) {
+  return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function normalizeDistrictName(value) {
+  return normalizePlace(value).replace(/(district|zila)$/, "");
+}
+// Karnataka district headquarters fallback coordinates.
+// Used when online district geocoding cannot find a match.
+
+const karnatakaDistrictHeadquarters = new Map([
+  ["Bagalkot", 16.1817, 75.6961],
+  ["Ballari", 15.1394, 76.9214],
+  ["Belagavi", 15.8497, 74.4977],
+  ["Bengaluru Rural", 13.2472, 77.7139],
+  ["Bengaluru Urban", 12.9716, 77.5946],
+  ["Bidar", 17.9104, 77.5199],
+  ["Chamarajanagar", 11.9261, 76.9437],
+  ["Chikkaballapur", 13.4355, 77.7315],
+  ["Chikkamagaluru", 13.3161, 75.7720],
+  ["Chitradurga", 14.2251, 76.3980],
+  ["Dakshina Kannada", 12.9141, 74.8560],
+  ["Davanagere", 14.4644, 75.9218],
+  ["Dharwad", 15.4589, 75.0078],
+  ["Gadag", 15.4167, 75.6167],
+  ["Hassan", 13.0068, 76.0996],
+  ["Haveri", 14.7951, 75.3991],
+  ["Kalaburagi", 17.3297, 76.8343],
+  ["Kodagu", 12.4244, 75.7382],
+  ["Kolar", 13.1367, 78.1292],
+  ["Koppal", 15.3500, 76.1540],
+  ["Mandya", 12.5218, 76.8951],
+  ["Mysuru", 12.2958, 76.6394],
+  ["Raichur", 16.2120, 77.3439],
+  ["Ramanagara", 12.7150, 77.2810],
+  ["Shivamogga", 13.9299, 75.5681],
+  ["Tumakuru", 13.3409, 77.1010],
+  ["Udupi", 13.3409, 74.7421],
+  ["Uttara Kannada", 14.8136, 74.1297],
+  ["Vijayapura", 16.8302, 75.7100],
+  ["Yadgir", 16.7700, 77.1370],
+  ["Vijayanagara", 15.2695, 76.3871]
+].map(([name, latitude, longitude]) => [
+  normalizeDistrictName(name),
+  { latitude, longitude }
+]));
+
+function getKarnatakaDistrictFallback(state, district) {
+  if (canonicalState(state) !== "karnataka") {
+    return null;
+  }
+
+  const coordinates = karnatakaDistrictHeadquarters.get(
+    normalizeDistrictName(district)
+  );
+
+  if (!coordinates) return null;
+
+  return {
+    ...coordinates,
+    name: district,
+    admin1: state,
+    timezone: "Asia/Kolkata",
+    geocodingSource: "Karnataka district headquarters fallback"
+  };
+}
+function canonicalState(value) {
+  const state = normalizePlace(value);
+  return stateAliases.get(state) || state;
+}
+
+function getDistrictSearchNames(district) {
+  const alias = Object.keys(districtAliases)
+    .find(name => normalizePlace(name) === normalizePlace(district));
+  return [...new Set([district, ...(alias ? districtAliases[alias] : [])])];
+}
 
 function parseCsv(text) {
   const rows = [];
@@ -71,43 +173,175 @@ async function fetchJson(url) {
   return response.json();
 }
 
+function fetchBoundarySearch(url) {
+  const request = boundaryGeocodeQueue.then(async () => {
+    const delay = Math.max(0, 1000 - (Date.now() - lastBoundaryGeocodeAt));
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    lastBoundaryGeocodeAt = Date.now();
+    const response = await fetch(url, {
+      headers: { "User-Agent": "SmartAgricultureManagement/1.0 (district weather lookup)" },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) {
+      throw new Error(`District geocoding provider returned HTTP ${response.status}.`);
+    }
+    return response.json();
+  });
+  boundaryGeocodeQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
+
+async function findDistrictBoundary(state, district, searchNames) {
+  for (const searchName of searchNames) {
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.search = new URLSearchParams({
+      q: `${searchName}, ${state}, India`,
+      format: "jsonv2",
+      addressdetails: "1",
+      limit: "5"
+    }).toString();
+    const data = await fetchBoundarySearch(url);
+    const matches = data.filter(result => {
+      if (!["administrative", "county"].includes(result.type)) return false;
+      const address = result.address || {};
+      if (canonicalState(address.state) !== canonicalState(state)) return false;
+      return searchNames.some(name =>
+        [address.state_district, address.county, result.name]
+          .filter(Boolean)
+          .some(candidate => normalizeDistrictName(candidate) === normalizeDistrictName(name))
+      );
+    });
+    if (matches.length) {
+      matches.sort((a, b) => {
+        const districtName = result => normalizeDistrictName(result.address?.state_district);
+        return Number(districtName(b) === normalizeDistrictName(district)) -
+          Number(districtName(a) === normalizeDistrictName(district));
+      });
+      const result = matches[0];
+      const latitude = Number(result.lat);
+      const longitude = Number(result.lon);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        return {
+          latitude,
+          longitude,
+          name: district,
+          admin1: state,
+          timezone: "Asia/Kolkata",
+          geocodingSource: "OpenStreetMap"
+        };
+      }
+    }
+  }
+  return null;
+}
+
 async function getLocation(state, district) {
-  const key = `${district}, ${state}`.toLowerCase();
+  const key = `${normalizePlace(district)}, ${canonicalState(state)}`;
+
   const cached = geocodeCache.get(key);
   if (cached) return cached;
 
-  const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
-  const geocodeDistrict = districtAliases[district] || district;
-  url.search = new URLSearchParams({
-    name: `${geocodeDistrict}, ${state}`,
-    count: "10",
-    language: "en",
-    format: "json",
-    countryCode: "IN"
-  }).toString();
-  const data = await fetchJson(url);
-  const districtMatches = (data.results || []).filter(location =>
-    String(location.name).toLowerCase() === geocodeDistrict.toLowerCase()
-  );
-  const result = districtMatches.find(location =>
-    String(location.admin1 || "").toLowerCase() === state.toLowerCase()
-  ) || (districtMatches.length === 1 ? districtMatches[0] : null);
-  if (!result || !Number.isFinite(result.latitude) || !Number.isFinite(result.longitude)) {
-    throw new Error(`No weather location was found for ${district}, ${state}.`);
+  const searchNames = getDistrictSearchNames(district);
+  let result = null;
+
+  // First attempt: Open-Meteo geocoding
+  for (const searchName of searchNames) {
+    try {
+      const url = new URL(
+        "https://geocoding-api.open-meteo.com/v1/search"
+      );
+
+      url.search = new URLSearchParams({
+        name: searchName,
+        count: "10",
+        language: "en",
+        format: "json",
+        countryCode: "IN"
+      }).toString();
+
+      const data = await fetchJson(url);
+
+      const matches = (data.results || []).filter(location =>
+        searchNames.some(name =>
+          normalizePlace(location.name) === normalizePlace(name)
+        ) &&
+        canonicalState(location.admin1) === canonicalState(state)
+      );
+
+      if (matches.length) {
+        result = matches.sort(
+          (a, b) => Number(b.population || 0) -
+                    Number(a.population || 0)
+        )[0];
+        break;
+      }
+    } catch (error) {
+      console.warn(
+        `Open-Meteo geocoding failed for ${searchName}:`,
+        error.message
+      );
+    }
   }
-  const location = {
-    latitude: result.latitude,
-    longitude: result.longitude,
-    name: result.name,
-    admin1: result.admin1 || state,
-    timezone: result.timezone || "auto"
-  };
-  geocodeCache.set(key, location);
-  return location;
+
+  if (
+    result &&
+    Number.isFinite(result.latitude) &&
+    Number.isFinite(result.longitude)
+  ) {
+    const location = {
+      latitude: result.latitude,
+      longitude: result.longitude,
+      name: result.name,
+      admin1: result.admin1 || state,
+      timezone: result.timezone || "Asia/Kolkata",
+      geocodingSource: "Open-Meteo"
+    };
+
+    geocodeCache.set(key, location);
+    return location;
+  }
+
+  // Second attempt: OpenStreetMap district boundary
+  try {
+    const boundary = await findDistrictBoundary(
+      state,
+      district,
+      searchNames
+    );
+
+    if (boundary) {
+      geocodeCache.set(key, boundary);
+      return boundary;
+    }
+  } catch (error) {
+    console.warn(
+      `Boundary lookup failed for ${district}:`,
+      error.message
+    );
+  }
+
+  // Third attempt: Karnataka headquarters coordinates
+  const fallback = getKarnatakaDistrictFallback(
+    state,
+    district
+  );
+
+  if (fallback) {
+    console.warn(
+      `Using headquarters coordinates for ${district}, ${state}`
+    );
+
+    geocodeCache.set(key, fallback);
+    return fallback;
+  }
+
+  throw new Error(
+    `No weather location was found for ${district}, ${state}.`
+  );
 }
 
 async function getWeather(state, district) {
-  const cacheKey = `${district}, ${state}`.toLowerCase();
+  const cacheKey = `${normalizePlace(district)}, ${canonicalState(state)}`;
   const cached = weatherCache.get(cacheKey);
   if (cached && Date.now() - cached.savedAt < WEATHER_CACHE_MS) return cached.value;
 
@@ -143,6 +377,7 @@ async function getWeather(state, district) {
   const weather = {
     location: `${district}, ${state}`,
     source: "Open-Meteo",
+    geocodingSource: location.geocodingSource,
     mode: "Live weather and 7-day forecast",
     temperatureC: data.current.temperature_2m,
     humidityPercent: data.current.relative_humidity_2m,
@@ -381,15 +616,16 @@ async function detectDisease(imagePath, userId, crop) {
       "Api-Key": apiKey
     },
     body: JSON.stringify({
-      images: [imageBase64],
-      similar_images: false
+      images: [imageBase64]
     }),
     signal: AbortSignal.timeout(30000)
   });
   if (!response.ok) {
     const message = response.status === 401 || response.status === 403
       ? "Plant.id rejected the API key. Check PLANT_ID_API_KEY in the server environment."
-      : `Plant.id health assessment failed with HTTP ${response.status}.`;
+      : response.status === 429
+        ? "Plant.id has no available API credits. Add credits to the configured account to run a disease assessment; no diagnosis was made."
+        : `Plant.id health assessment failed with HTTP ${response.status}.`;
     const error = new Error(message);
     error.status = 502;
     throw error;

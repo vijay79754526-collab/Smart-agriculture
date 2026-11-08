@@ -41,6 +41,39 @@ test("builds district prices, state market comparisons, and chronological price 
   assert.ok(report.trend[0].date < report.trend[1].date);
 });
 
+test("matches official district aliases while preserving state-wide comparisons", async () => {
+  for (const [selectedDistrict, officialDistrict] of [
+    ["Mysuru", "Mysore"],
+    ["Bengaluru Urban", "Bengaluru"],
+    ["Bengaluru Rural", "Bengaluru"]
+  ]) {
+    const records = [
+      { ...fixtureRecords()[0], Commodity: "Potato", District: officialDistrict },
+      { ...fixtureRecords()[2], Commodity: "Potato" }
+    ];
+    const db = { marketPriceSnapshots: [] };
+    let requestUrl;
+    const report = await marketPrices.getMarketPriceReport({
+      crop: "Potato",
+      state: "Karnataka",
+      district: selectedDistrict,
+      apiKey: "test-key",
+      readDB: () => db,
+      saveDB: next => Object.assign(db, next),
+      fetchImpl: async url => {
+        requestUrl = new URL(url);
+        return { ok: true, json: async () => ({ records }) };
+      }
+    });
+
+    assert.equal(report.status, "current");
+    assert.equal(report.prices.length, 1);
+    assert.equal(report.prices[0].district, officialDistrict);
+    assert.equal(report.comparisons[0].district, "Mandya");
+    assert.equal(requestUrl.searchParams.has("filters[district]"), false);
+  }
+});
+
 test("does not fabricate prices when the API key is missing or the source fails", async () => {
   const db = { marketPriceSnapshots: [] };
   const readDB = () => db;
@@ -63,6 +96,9 @@ test("does not fabricate prices when the API key is missing or the source fails"
     now: Date.now() + 10 * 60 * 1000
   });
   assert.equal(withKey.status, "current");
+  assert.equal(withKey.prices.length, 1);
+  assert.equal(withKey.prices[0].modalPrice, 1500);
+  assert.equal(withKey.trend.length, 2);
   assert.equal(db.marketPriceSnapshots.length, 1);
 
   const failedRefresh = await marketPrices.getMarketPriceReport({

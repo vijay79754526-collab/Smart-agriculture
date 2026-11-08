@@ -5,12 +5,11 @@ const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
-const agricultureServices = require("./agriculture-services");
-const marketPrices = require("./market-prices");
 require("dotenv").config({
   path: path.join(__dirname, ".env")
 });
+const agricultureServices = require("./agriculture-services");
+const marketPrices = require("./market-prices");
 
 const app = express();
 if (process.env.NODE_ENV === "production") {
@@ -30,14 +29,12 @@ const DEPLOYED_PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_DIR = fs.existsSync(DEPLOYED_PUBLIC_DIR)
   ? DEPLOYED_PUBLIC_DIR
   : path.join(__dirname, "..", "public");
-const DATA_DIR = path.join("/tmp", "smart-agriculture", "data");
-
-const UPLOAD_DIR = path.join("/tmp", "smart-agriculture", "uploads");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(DATA_DIR, "uploads"));
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, "db.json");
-const users = [];
 
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
@@ -64,7 +61,6 @@ const DEFAULT_DB = {
   searchHistory: [],
   dashboardArchives: [],
   weatherAlerts: [],
-  passwordResetTokens: []
 };
 const ARCHIVABLE_COLLECTIONS = [
   "crops",
@@ -141,7 +137,7 @@ function saveDB(data) {
 
 function findUserById(id) {
   const storedUser = readDB().users.find(user => String(user.id) === String(id));
-  return storedUser || users.find(user => String(user.id) === String(id));
+  return storedUser || null;
 }
 
 function publicUser(user) {
@@ -157,182 +153,22 @@ function publicUser(user) {
 
 function normalizeMobileNumber(value) {
   const input = String(value || "").trim();
-  if (!/^\+?[\d\s()-]+$/.test(input)) return "";
+  if (!/^\+?[\d\s().-]+$/.test(input)) return "";
   const digits = input.replace(/\D/g, "");
   const nationalNumber = digits.length === 10
     ? digits
     : digits.length === 12 && digits.startsWith("91")
       ? digits.slice(2)
+      : digits.length === 13 && digits.startsWith("0091")
+        ? digits.slice(4)
+        : digits.length === 11 && digits.startsWith("0")
+          ? digits.slice(1)
       : "";
   return /^[6-9]\d{9}$/.test(nationalNumber) ? `+91${nationalNumber}` : "";
 }
 
 function isValidMobileNumber(value) {
   return /^\+91[6-9]\d{9}$/.test(value);
-}
-
-function passwordResetSecretHash(resetId, secret) {
-  return crypto.createHmac("sha256", JWT_SECRET)
-    .update(`${resetId}:${secret}`)
-    .digest("hex");
-}
-
-function isEmailConfigured() {
-  const host = String(process.env.SMTP_HOST || "").trim();
-  const user = String(process.env.SMTP_USER || "").trim();
-  const password = String(process.env.SMTP_PASSWORD || "").trim();
-  const from = String(process.env.SMTP_FROM || "").trim();
-  const isPlaceholder = value => /^(your[-_ ]|replace[-_ ]|changeme|example|<)/i.test(value);
-  return Boolean(host && user && password && from &&
-    ![host, user, password, from].some(isPlaceholder));
-}
-
-function createSmtpTransporter() {
-  const port = Number(String(process.env.SMTP_PORT || "587").trim());
-  const secureSetting = String(process.env.SMTP_SECURE || "").trim().toLowerCase() === "true";
-  if (port === 587 && secureSetting) {
-    console.warn("SMTP_SECURE=true is incompatible with SMTP_PORT=587; using STARTTLS.");
-  }
-
-  return nodemailer.createTransport({
-    host: String(process.env.SMTP_HOST).trim(),
-    port,
-    secure: port === 465 || (port !== 587 && secureSetting),
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 60000,
-    auth: {
-      user: String(process.env.SMTP_USER).trim(),
-      pass: String(process.env.SMTP_PASSWORD).trim()
-    }
-  });
-}
-
-function isTwilioConfigured() {
-  const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
-  const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
-  const fromNumber = String(process.env.TWILIO_FROM_NUMBER || "").trim();
-  const isPlaceholder = value => /^(your[-_ ]|replace[-_ ]|changeme|example|<)/i.test(value);
-  return /^AC[0-9a-f]{32}$/i.test(accountSid) &&
-    authToken.length > 0 &&
-    /^\+[1-9]\d{7,14}$/.test(fromNumber) &&
-    ![accountSid, authToken, fromNumber].some(isPlaceholder);
-}
-
-async function sendRegistrationEmail(user) {
-  if (!isEmailConfigured()) {
-    throw new Error("Registration confirmation email is not configured.");
-  }
-
-  try {
-    await createSmtpTransporter().sendMail({
-      from: process.env.SMTP_FROM,
-      to: user.email,
-      subject: "Welcome to Smart Agriculture",
-      text: `Hello ${user.name},\n\nYour Smart Agriculture account was created successfully. You can now log in and manage your farm.\n\nIf you did not create this account, please contact support.`
-    });
-  } catch (error) {
-    console.error("Registration confirmation email delivery failed:", error.message);
-    throw new Error("Registration confirmation email could not be sent.");
-  }
-}
-
-async function sendRegistrationSms(user) {
-  if (!isTwilioConfigured()) {
-    throw new Error("Registration confirmation SMS is not configured.");
-  }
-
-  const accountSid = String(process.env.TWILIO_ACCOUNT_SID).trim();
-  const authToken = String(process.env.TWILIO_AUTH_TOKEN).trim();
-  const form = new URLSearchParams({
-    To: user.mobileNumber,
-    From: String(process.env.TWILIO_FROM_NUMBER).trim(),
-    Body: `Welcome to Smart Agriculture, ${user.name}! Your registration was successful.`
-  });
-
-  let response;
-  try {
-    response = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: form,
-        signal: AbortSignal.timeout(12000)
-      }
-    );
-  } catch (error) {
-    console.error("Registration confirmation SMS delivery failed:", error.message);
-    throw new Error("Registration confirmation SMS could not be sent.");
-  }
-
-  if (!response.ok) {
-    console.error(`Registration confirmation SMS delivery failed with HTTP ${response.status}.`);
-    throw new Error("Registration confirmation SMS could not be sent.");
-  }
-}
-
-async function sendPasswordResetCode(email, code) {
-  if (!isEmailConfigured()) {
-    throw new Error("Email password reset is not configured.");
-  }
-
-  const requestedAt = new Intl.DateTimeFormat("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true
-  }).format(new Date());
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const transporter = createSmtpTransporter();
-    try {
-      const result = await transporter.sendMail({
-        from: String(process.env.SMTP_FROM).trim(),
-        to: email,
-        subject: `Your Smart Agriculture password reset code - ${requestedAt} IST`,
-        text: `Your password reset code is ${code}. It expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.`,
-        html: `<p>Your Smart Agriculture password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>This code expires in 5 minutes and can only be used once. If you did not request this, you can ignore this email.</p>`,
-        textEncoding: "quoted-printable"
-      });
-      const accepted = Array.isArray(result.accepted) &&
-        result.accepted.some(address => String(address).toLowerCase() === email.toLowerCase());
-      if (!accepted) {
-        throw new Error("The SMTP server did not accept the reset email recipient.");
-      }
-      console.info("Password reset email accepted by SMTP.", {
-        messageId: result.messageId,
-        acceptedRecipientCount: result.accepted.length
-      });
-      return;
-    } catch (error) {
-      const isPreConnectionFailure = error.command === "CONN" &&
-        ["ESOCKET", "ECONNECTION", "ETIMEDOUT", "ECONNRESET", "EPIPE", "EAI_AGAIN"]
-          .includes(error.code);
-      if (attempt === 1 && isPreConnectionFailure) {
-        console.warn("Password reset email SMTP connection failed before delivery; retrying once.", {
-          code: error.code,
-          command: error.command,
-          causeCode: error.cause?.code
-        });
-        await new Promise(resolve => setTimeout(resolve, 750));
-        continue;
-      }
-
-      console.error("Password reset email delivery failed:", {
-        message: error.message || error.cause?.message || "No SMTP error message was provided.",
-        code: error.code || error.cause?.code,
-        responseCode: error.responseCode,
-        command: error.command
-      });
-      throw new Error("Password reset email could not be sent. Check your SMTP settings and try again.");
-    } finally {
-      transporter.close();
-    }
-  }
 }
 
 // Login and dashboard pages
@@ -422,118 +258,79 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Agriculture API is running" });
 });
 
-app.post("/api/register", async (req, res) => {
+app.post("/api/register", (req, res) => {
   const { name, email, mobileNumber, password } = req.body || {};
+  const cleanName = String(name || "").trim();
   const normalizedEmail = String(email || "").trim().toLowerCase();
-  const normalizedMobile = normalizeMobileNumber(mobileNumber);
+  const normalizedMobile = mobileNumber ? normalizeMobileNumber(mobileNumber) : "";
 
-  if (!name || !email || !mobileNumber || !password) {
-    return res.status(400).json({ error: "Name, email, mobile number, and password are required." });
+  if (!cleanName || !normalizedEmail || !password) {
+    return res.status(400).json({ error: "Name, email, and password are required." });
   }
-  if (String(name).trim().length > 80 || normalizedEmail.length > 254 ||
+  if (cleanName.length > 80 || normalizedEmail.length > 254 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return res.status(400).json({ error: "Enter a name and a valid email address." });
   }
-  if (!isValidMobileNumber(normalizedMobile)) {
-    return res.status(400).json({ error: "Enter a valid Indian mobile number (10 digits, starting with 6–9)." });
+  if (mobileNumber && !isValidMobileNumber(normalizedMobile)) {
+    return res.status(400).json({ error: "Enter a valid Indian mobile number or leave it blank." });
   }
-
-  if (String(password).length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters long." });
+  if (String(password).length < 8 || String(password).length > 128) {
+    return res.status(400).json({ error: "Password must be between 8 and 128 characters." });
   }
 
   const db = readDB();
-  const existing = [...db.users, ...users].find(user =>
-    user.email.toLowerCase() === normalizedEmail ||
-    (user.mobileNumber && normalizeMobileNumber(user.mobileNumber) === normalizedMobile)
+  const existing = db.users.find(user =>
+    String(user.email || "").toLowerCase() === normalizedEmail ||
+    (normalizedMobile && user.mobileNumber &&
+      normalizeMobileNumber(user.mobileNumber) === normalizedMobile)
   );
   if (existing) {
     return res.status(409).json({ error: "An account with this email or mobile number already exists." });
   }
 
   const user = {
-    id: Date.now(),
-    name: String(name).trim(),
-    email: String(email).trim(),
+    id: crypto.randomUUID(),
+    name: cleanName,
+    email: normalizedEmail,
     mobileNumber: normalizedMobile,
-    passwordHash: bcrypt.hashSync(String(password), 10),
-    hasLoggedIn: false
+    passwordHash: bcrypt.hashSync(String(password), 12),
+    hasLoggedIn: false,
+    createdAt: new Date().toISOString()
   };
 
   db.users.push(user);
   saveDB(db);
-  users.push(user);
-
-  const [emailResult, smsResult] = await Promise.allSettled([
-    sendRegistrationEmail(user),
-    sendRegistrationSms(user)
-  ]);
-  const emailSent = emailResult.status === "fulfilled";
-  const smsSent = smsResult.status === "fulfilled";
-
-  if (!emailSent) {
-    console.error("Registration confirmation email was not delivered:", emailResult.reason.message);
-  }
-  if (!smsSent) {
-    console.error("Registration confirmation SMS was not delivered:", smsResult.reason.message);
-  }
-
-  let message;
-  if (emailSent && smsSent) {
-    message = "Registration successful. Confirmation email and SMS sent. Please log in to continue.";
-  } else if (emailSent) {
-    message = "Registration successful. Confirmation email sent, but SMS could not be delivered. Please check the phone number. Please log in to continue.";
-  } else if (smsSent) {
-    message = "Registration successful. Confirmation SMS sent, but email could not be delivered. Please check your email address. Please log in to continue.";
-  } else {
-    message = "Registration successful, but the confirmation email and SMS could not be delivered. Please check your contact details. Please log in to continue.";
-  }
-
   res.status(201).json({
-    message,
+    message: "Registration successful. You can now log in using your email and password.",
     user: publicUser(user)
   });
 });
 
 app.post("/api/login", (req, res) => {
-  const { email, identifier, mobileNumber, password } = req.body || {};
-  const loginIdentifier = String(identifier || email || mobileNumber || "").trim();
-
-  if (!loginIdentifier || !password) {
+  const identifier = String(
+    req.body?.identifier || req.body?.email || req.body?.mobileNumber || ""
+  ).trim();
+  const password = String(req.body?.password || "");
+  if (!identifier || !password) {
     return res.status(400).json({ error: "Email or mobile number and password are required." });
   }
-
   const db = readDB();
-  const normalizedMobile = normalizeMobileNumber(loginIdentifier);
-  const user = [...db.users, ...users].find(entry =>
-    entry.email.toLowerCase() === loginIdentifier.toLowerCase() ||
-    (entry.mobileNumber &&
-      normalizeMobileNumber(entry.mobileNumber) === normalizedMobile &&
-      isValidMobileNumber(normalizedMobile))
+  const email = identifier.toLowerCase();
+  const normalizedMobile = normalizeMobileNumber(identifier);
+  const user = db.users.find(entry =>
+    String(entry.email || "").toLowerCase() === email ||
+    (normalizedMobile && entry.mobileNumber &&
+      normalizeMobileNumber(entry.mobileNumber) === normalizedMobile)
   );
-  if (!user || !bcrypt.compareSync(String(password), user.passwordHash)) {
+  if (!user || !user.passwordHash || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: "Invalid email or mobile number, or password." });
   }
-
-  const token = issueToken(user);
   const isFirstLogin = user.hasLoggedIn !== true;
   user.hasLoggedIn = true;
-  const userIndex = db.users.findIndex(entry => String(entry.id) === String(user.id));
-  if (userIndex >= 0) {
-    db.users[userIndex].hasLoggedIn = true;
-  } else {
-    db.users.push(user);
-  }
   saveDB(db);
-
-  res.json({
-    token,
-    user: publicUser(user),
-    isFirstLogin
-  });
+  res.json({ token: issueToken(user), user: publicUser(user), isFirstLogin });
 });
 
- 
 app.get("/api/profile", requireAuth, (req, res) => {
   const user = findUserById(req.user.id);
   if (!user) return res.status(404).json({ error: "User profile not found. Please sign in again." });
@@ -553,14 +350,10 @@ app.put("/api/profile", requireAuth, (req, res) => {
   }
 
   const db = readDB();
-  let user = db.users.find(entry => String(entry.id) === String(req.user.id));
-  if (!user) {
-    user = users.find(entry => String(entry.id) === String(req.user.id));
-    if (user) db.users.push(user);
-  }
+  const user = db.users.find(entry => String(entry.id) === String(req.user.id));
   if (!user) return res.status(404).json({ error: "User profile not found. Please sign in again." });
 
-  const duplicate = [...db.users, ...users].some(entry =>
+  const duplicate = db.users.some(entry =>
     String(entry.id) !== String(user.id) &&
     (entry.email.toLowerCase() === email.toLowerCase() ||
       (entry.mobileNumber && normalizeMobileNumber(entry.mobileNumber) === mobileNumber))
@@ -587,11 +380,26 @@ app.put("/api/profile", requireAuth, (req, res) => {
 app.post("/api/profile/password", requireAuth, (req, res) => {
   const currentPassword = String(req.body?.currentPassword || "");
   const newPassword = String(req.body?.newPassword || "");
-  if (!currentPassword || newPassword.length < 8) {
-    ret const now = Date.now();
-  for (const [key, expiresAt] of passwordResetCooldowns) {
-    if (expiresAt <= now) passwordResetCooldowns.delete(key);
+  if (!currentPassword || newPassword.length < 8 ||
+      Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res.status(400).json({
+      error: "Enter your current password and a new password between 8 and 72 bytes."
+    });
   }
+
+  const db = readDB();
+  const user = db.users.find(entry => String(entry.id) === String(req.user.id));
+  if (!user) {
+    return res.status(404).json({ error: "User profile not found. Please sign in again." });
+  }
+  if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    return res.status(401).json({ error: "Current password is incorrect." });
+  }
+
+  user.passwordHash = bcrypt.hashSync(newPassword, 10);
+  saveDB(db);
+  res.json({ message: "Password updated successfully." });
+});
 
 app.get("/api/search-history", requireAuth, (req, res) => {
   const history = readDB().searchHistory
@@ -676,6 +484,39 @@ app.delete("/api/search-history", requireAuth, (req, res) => {
   );
   saveDB(db);
   res.json({ deleted: before - db.searchHistory.length });
+});
+
+app.get("/api/feedback", requireAuth, (req, res) => {
+  const feedback = readDB().feedbacks
+    .filter(entry => String(entry.userId) === String(req.user.id))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(feedback);
+});
+
+app.post("/api/feedback", requireAuth, (req, res) => {
+  const category = String(req.body?.category || "").trim();
+  const rating = Number(req.body?.rating);
+  const message = String(req.body?.message || "").trim();
+  const allowedCategories = [
+    "App Experience", "Crop Health", "Soil Management", "Market Advice", "Other"
+  ];
+  if (!allowedCategories.includes(category) || !Number.isInteger(rating) ||
+      rating < 1 || rating > 5 || !message || message.length > 1000) {
+    return res.status(400).json({ error: "Enter a valid feedback category, rating, and message." });
+  }
+
+  const feedback = {
+    id: crypto.randomUUID(),
+    userId: req.user.id,
+    category,
+    rating,
+    message,
+    createdAt: new Date().toISOString()
+  };
+  const db = readDB();
+  db.feedbacks.push(feedback);
+  saveDB(db);
+  res.status(201).json({ message: "Feedback submitted successfully.", feedback });
 });
 
 app.post("/api/logout", (req, res) => {

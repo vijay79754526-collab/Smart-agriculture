@@ -1035,3 +1035,13 @@ footer {
     min-height: auto;
   }
 }
+.form-message-success {
+    color: #16803c;
+    background: #e8f7ed;
+    border: 1px solid #b7e4c7;
+    padding: 12px;
+    margin-top: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+}

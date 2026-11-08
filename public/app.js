@@ -311,6 +311,17 @@ function renderWeatherResult(weather) {
     forecast.textContent = `${day.date}: ${day.minTemperatureC}–${day.maxTemperatureC}°C · ${day.rainfallMm} mm rain · wind up to ${day.maxWindSpeedKmh} km/h`;
     result.appendChild(forecast);
   });
+  if (weather.geocodingSource === "OpenStreetMap") {
+    const attribution = document.createElement("small");
+    attribution.append("District location data © ");
+    const link = document.createElement("a");
+    link.href = "https://www.openstreetmap.org/copyright";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "OpenStreetMap contributors";
+    attribution.appendChild(link);
+    result.appendChild(attribution);
+  }
 }
 
 function renderMarketResult(market) {
@@ -536,6 +547,7 @@ function showFeaturePage() {
   $("#featureBackLink").hidden = true;
 
   const featureId = window.location.pathname.match(/^\/feature\/([^/]+)$/)?.[1];
+  $("#resetDashboardBtn").hidden = Boolean(featureId);
   if (!featureId) return;
 
   const targetPanel = document.querySelector(`.feature-panel[data-feature="${featureId}"]`);
@@ -629,10 +641,17 @@ themeToggle.addEventListener("click", () => {
 
 function setProfileMenuMessage(message, isError = false) {
   const element = $("#profileMenuMessage");
+
   element.dataset.translationSource = message;
   element.textContent = window.agriI18n.translate(message);
+
   element.hidden = !message;
+
+  // Show red style for errors
   element.classList.toggle("form-message-error", isError);
+
+  // Show green style for successful updates
+  element.classList.toggle("form-message-success", !isError && !!message);
 }
 
 function renderProfileDetails(profile) {
@@ -744,22 +763,34 @@ $("#profilePasswordForm").addEventListener("submit", async event => {
   }
 
   const button = event.target.querySelector('button[type="submit"]');
-  button.disabled = true;
-  try {
-    const result = await api("/api/profile/password", {
-      method: "POST",
-      body: JSON.stringify({
-        currentPassword: form.get("currentPassword"),
-        newPassword: form.get("newPassword")
-      })
-    });
-    event.target.reset();
-    setProfileMenuMessage(result.message);
-  } catch (error) {
-    setProfileMenuMessage(error.message, true);
-  } finally {
-    button.disabled = false;
-  }
+button.disabled = true;
+
+try {
+  const result = await api("/api/profile/password", {
+    method: "POST",
+    body: JSON.stringify({
+      currentPassword: form.get("currentPassword"),
+      newPassword: form.get("newPassword")
+    })
+  });
+
+  // Clear password fields after successful update
+  event.target.reset();
+
+  // Display success message
+  setProfileMenuMessage(
+    "Password updated successfully!",
+    false
+  );
+
+} catch (error) {
+
+  // Display error message
+  setProfileMenuMessage(error.message, true);
+
+} finally {
+  button.disabled = false;
+}
 });
 
 $("#logoutBtn").addEventListener("click", () => {

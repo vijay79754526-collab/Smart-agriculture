@@ -1,8 +1,16 @@
-const DATASET_ID = "9ef84268-d588-465a-a308-a864a43d0070";
+const DATASET_ID = process.env.DATASET_ID || "9ef84268-d588-465a-a308-a864a43d0070";
 const SOURCE_NAME = "data.gov.in — AGMARKNET daily mandi prices";
 const CACHE_DURATION_MS = 5 * 60 * 1000;
+const RATE_LIMIT_FALLBACK_MS = 5 * 60 * 1000;
+let rateLimitUntil = 0;
 const MAX_RECORDS = 1000;
 const MAX_TREND_DAYS = 90;
+const DISTRICT_ALIASES = new Map([
+  ["bengaluruurban", "bengaluru"],
+  ["bengalururural", "bengaluru"],
+  ["mysore", "mysuru"],
+  ["bangalore", "bengaluru"]
+]);
 
 const CROPS = [
   "Banana", "Brinjal", "Cotton", "Garlic", "Ginger", "Green Chilli",
@@ -17,6 +25,28 @@ function normalize(value) {
     .replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
+function normalizeDistrict(value) {
+  const district = normalize(value);
+  return DISTRICT_ALIASES.get(district) || district;
+}
+
+function getRetryDelayMs(value, now) {
+  if (!value) return RATE_LIMIT_FALLBACK_MS;
+
+  const seconds = Number(value);
+
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return seconds * 1000;
+  }
+
+  const date = Date.parse(value);
+
+  if (Number.isFinite(date) && date > now) {
+    return date - now;
+  }
+
+  return RATE_LIMIT_FALLBACK_MS;
+}
 function parsePrice(value) {
   const raw = String(value ?? "").replace(/,/g, "").trim();
   if (!raw) return null;
@@ -65,7 +95,7 @@ function normalizeRecord(record) {
 function newestPerMarket(records) {
   const latest = new Map();
   for (const record of records) {
-    const key = `${normalize(record.district)}|${normalize(record.market)}`;
+    const key = `${normalizeDistrict(record.district)}|${normalize(record.market)}`;
     const previous = latest.get(key);
     if (!previous || record.arrivalDate > previous.arrivalDate) {
       latest.set(key, record);
@@ -80,7 +110,7 @@ function buildTrend(records, district) {
   const daily = new Map();
 
   for (const record of records) {
-    if (normalize(record.district) !== normalize(district) ||
+    if (normalizeDistrict(record.district) !== normalizeDistrict(district) ||
         new Date(`${record.arrivalDate}T00:00:00Z`) < cutoff) {
       continue;
     }
@@ -100,7 +130,7 @@ function buildTrend(records, district) {
 function buildReport(records, { crop, state, district }) {
   const latestByMarket = newestPerMarket(records);
   const districtPrices = latestByMarket
-    .filter(record => normalize(record.district) === normalize(district))
+    .filter(record => normalizeDistrict(record.district) === normalizeDistrict(district))
     .sort((a, b) => a.market.localeCompare(b.market));
   const comparisons = [...latestByMarket]
     .sort((a, b) => b.modalPrice - a.modalPrice)
@@ -149,7 +179,7 @@ function staleReport(snapshot, message) {
     ...snapshot.report,
     status: "stale",
     isStale: true,
-    message: `${message} Showing the last successfully retrieved government data; check its arrival date before trading.`
+    message: ""
   };
 }
 
@@ -184,6 +214,21 @@ async function getMarketPriceReport({
   const configuredApiKey = String(apiKey || "").trim();
   const db = readDB();
   const saved = readSnapshot(db, key);
+  if (now < rateLimitUntil) {
+    return saved
+      ? staleReport(saved, "data.gov.in rate limit is active.")
+      : {
+          status: "unavailable",
+          source: SOURCE_NAME,
+          crop: selection.crop,
+          state: selection.state,
+          district: selection.district,
+          prices: [],
+          comparisons: [],
+          trend: [],
+          message: "Government API rate limit is active. Please wait before trying again. No estimated prices are shown."
+        };
+  }
   if (!configuredApiKey) {
     return saved
       ? staleReport(saved, "The data.gov.in API key is not configured.")
@@ -205,28 +250,38 @@ async function getMarketPriceReport({
     url.searchParams.set("api-key", configuredApiKey);
     url.searchParams.set("format", "json");
     url.searchParams.set("limit", String(MAX_RECORDS));
-    url.searchParams.set("sort[Arrival_Date]", "desc");
-    url.searchParams.set("filters[State]", selection.state);
-    url.searchParams.set("filters[Commodity]", selection.crop);
+    url.searchParams.set("filters[state.keyword]", selection.state);
+    url.searchParams.set("filters[commodity]", selection.crop);
 
     const response = await fetchImpl(url, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) {
-      throw new Error(`data.gov.in responded with HTTP ${response.status}`);
+      const errorBody = typeof response.text === "function"
+        ? await response.text().catch(() => "")
+        : "";
+      const retryAfter = response.headers?.get?.("retry-after");
+      if (response.status === 429) {
+        rateLimitUntil = now + getRetryDelayMs(retryAfter, now);
+      }
+
+      throw new Error(
+        `data.gov.in HTTP ${response.status}: ${errorBody.slice(0, 300)}`
+      );
     }
     const payload = await response.json();
-    if (!payload || !Array.isArray(payload.records)) {
+    const records = payload?.records ?? payload?.record;
+    if (!payload || !Array.isArray(records)) {
       throw new Error("data.gov.in returned an invalid market-price response");
     }
 
-    const records = payload.records
+    const filteredRecords = records
       .map(normalizeRecord)
       .filter(record =>
         record &&
         normalize(record.crop) === normalize(selection.crop) &&
         normalize(record.state) === normalize(selection.state)
       );
-    if (records.length) {
-      const report = buildReport(records, selection);
+    if (filteredRecords.length) {
+      const report = buildReport(filteredRecords, selection);
       memoryCache.set(key, { cachedAt: now, report });
       saveSnapshot(db, key, report, saveDB);
       return report;

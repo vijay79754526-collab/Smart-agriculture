@@ -311,6 +311,17 @@ function renderWeatherResult(weather) {
     forecast.textContent = `${day.date}: ${day.minTemperatureC}–${day.maxTemperatureC}°C · ${day.rainfallMm} mm rain · wind up to ${day.maxWindSpeedKmh} km/h`;
     result.appendChild(forecast);
   });
+  if (weather.geocodingSource === "OpenStreetMap") {
+    const attribution = document.createElement("small");
+    attribution.append("District location data © ");
+    const link = document.createElement("a");
+    link.href = "https://www.openstreetmap.org/copyright";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "OpenStreetMap contributors";
+    attribution.appendChild(link);
+    result.appendChild(attribution);
+  }
 }
 
 function renderMarketResult(market) {
@@ -535,6 +546,7 @@ function showFeaturePage() {
   });
 
   const featureId = window.location.pathname.match(/^\/feature\/([^/]+)$/)?.[1];
+  $("#resetDashboardBtn").hidden = Boolean(featureId);
   $("#featureBackLink").hidden = true;
   if (!featureId) return;
 

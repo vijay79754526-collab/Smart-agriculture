@@ -296,3 +296,27 @@ input:focus {
     grid-template-columns: 1fr;
   }
 }
+/* Password update success and error messages */
+
+.password-update-message {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+/* Successful password update */
+.password-update-message.success {
+    color: #16803c;
+    background: #e8f7ed;
+    border: 1px solid #b7e4c7;
+}
+
+/* Password update error */
+.password-update-message.error {
+    color: #c62828;
+    background: #fdeaea;
+    border: 1px solid #f5c2c2;
+}

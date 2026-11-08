@@ -49,7 +49,7 @@ async function loadHistory() {
       [
         ["Soil type", crop.soilType],
         ["Land area", crop.area ? `${crop.area} acres` : ""],
-        ["Farm location", [crop.district, crop.state].filter(Boolean).join(", ")],
+        ["Location", [crop.district, crop.state].filter(Boolean).join(", ")],
         ["Planting date", crop.plantingDate],
         ["Expected harvest", crop.expectedHarvestDate],
         ["Irrigation", crop.irrigationType],

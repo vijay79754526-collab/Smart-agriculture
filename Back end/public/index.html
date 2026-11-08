@@ -49,7 +49,7 @@
               <dd id="profileAccountMobile"></dd>
             </div>
             <div>
-              <dt>Farm location</dt>
+              <dt>Location</dt>
               <dd id="profileAccountLocation"></dd>
             </div>
           </dl>
@@ -255,7 +255,6 @@
             <input name="crop" type="text" maxlength="80" placeholder="Crop name (optional)">
             <button>Analyze Leaf Image</button>
           </form>
-          <small>Real AI diagnosis requires PLANT_ID_API_KEY in Back end/.env. No diagnosis is shown until the provider is configured.</small>
           <div id="diseaseResult" class="disease-result" role="status" aria-live="polite" hidden></div>
         </section>
 
@@ -354,7 +353,6 @@
             <button type="submit">Search Official Prices</button>
           </form>
           <div id="marketResult" class="result-panel" role="status" aria-live="polite" hidden></div>
-          <small id="marketDataNote">Prices are sourced from data.gov.in AGMARKNET reports and may be delayed. Live prices require DATA_GOV_IN_API_KEY in Back end/.env; no estimated or sample prices are shown.</small>
         </section>
 
         <section class="panel feature-panel" data-feature="farm-expenses">

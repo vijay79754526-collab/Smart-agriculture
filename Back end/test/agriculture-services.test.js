@@ -6,6 +6,7 @@ const path = require("node:path");
 const {
   buildWeatherAlerts,
   detectDisease,
+  getWeather,
   persistWeatherAlerts,
   recommendCrops
 } = require("../agriculture-services");
@@ -84,6 +85,123 @@ test("weather alerts cover rain, heat, drought outlook, disease risk, and wind",
   assert.ok(buildWeatherAlerts(dryWeather).some(alert => alert.type === "low-rainfall"));
 });
 
+test("weather geocoding retries official district aliases and displays the selected district", async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async url => {
+    const requestUrl = new URL(url);
+    requests.push(requestUrl);
+    if (requestUrl.hostname === "geocoding-api.open-meteo.com") {
+      if (requestUrl.searchParams.get("name").startsWith("Gurugram")) {
+        return { ok: true, json: async () => ({ results: [] }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          results: [{
+            name: "Gurgaon",
+            admin1: "Haryana",
+            latitude: 28.46,
+            longitude: 77.03,
+            timezone: "Asia/Kolkata"
+          }]
+        })
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        current: {
+          temperature_2m: 29,
+          relative_humidity_2m: 60,
+          precipitation: 0,
+          wind_speed_10m: 8
+        },
+        daily: {
+          time: Array.from({ length: 7 }, (_, index) =>
+            new Date(Date.now() + index * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          ),
+          temperature_2m_max: Array(7).fill(32),
+          temperature_2m_min: Array(7).fill(22),
+          precipitation_sum: Array(7).fill(0),
+          wind_speed_10m_max: Array(7).fill(12)
+        }
+      })
+    };
+  };
+  try {
+    const weather = await getWeather("Haryana", "Gurugram");
+    assert.equal(weather.location, "Gurugram, Haryana");
+    assert.equal(weather.daily.length, 7);
+    assert.ok(requests.some(url => url.searchParams.get("name") === "Gurgaon, Haryana"));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("weather geocoding falls back to the exact district boundary", async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    const requestUrl = new URL(url);
+    requests.push({ requestUrl, options });
+    if (requestUrl.hostname === "geocoding-api.open-meteo.com") {
+      return { ok: true, json: async () => ({ results: [] }) };
+    }
+    if (requestUrl.hostname === "nominatim.openstreetmap.org") {
+      return {
+        ok: true,
+        json: async () => [{
+          type: "administrative",
+          name: "West Godavari District",
+          lat: "16.6443029",
+          lon: "81.5885247",
+          address: {
+            state_district: "West Godavari District",
+            state: "Andhra Pradesh"
+          }
+        }]
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        current: {
+          temperature_2m: 29,
+          relative_humidity_2m: 60,
+          precipitation: 0,
+          wind_speed_10m: 8
+        },
+        daily: {
+          time: Array.from({ length: 7 }, (_, index) =>
+            new Date(Date.now() + index * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          ),
+          temperature_2m_max: Array(7).fill(32),
+          temperature_2m_min: Array(7).fill(22),
+          precipitation_sum: Array(7).fill(0),
+          wind_speed_10m_max: Array(7).fill(12)
+        }
+      })
+    };
+  };
+  try {
+    const weather = await getWeather("Andhra Pradesh", "West Godavari");
+    assert.equal(weather.location, "West Godavari, Andhra Pradesh");
+    assert.equal(weather.geocodingSource, "OpenStreetMap");
+    assert.equal(weather.daily.length, 7);
+    const boundaryRequest = requests.find(request =>
+      request.requestUrl.hostname === "nominatim.openstreetmap.org"
+    );
+    assert.ok(boundaryRequest);
+    assert.equal(
+      boundaryRequest.options.headers["User-Agent"],
+      "SmartAgricultureManagement/1.0 (district weather lookup)"
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("weather alert records are deduplicated for a user and forecast date", () => {
   let saved = { weatherAlerts: [] };
   const readDB = () => structuredClone(saved);
@@ -110,6 +228,27 @@ test("disease detection fails explicitly when the provider key is missing", asyn
   } finally {
     if (originalKey === undefined) delete process.env.PLANT_ID_API_KEY;
     else process.env.PLANT_ID_API_KEY = originalKey;
+  }
+});
+
+test("disease detection explains when the provider has no available credits", async () => {
+  const originalKey = process.env.PLANT_ID_API_KEY;
+  const originalFetch = global.fetch;
+  const imageDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "agri-disease-credits-test-"));
+  const imagePath = path.join(imageDirectory, "leaf.jpg");
+  fs.writeFileSync(imagePath, "test image");
+  process.env.PLANT_ID_API_KEY = "test-provider-key";
+  global.fetch = async () => ({ ok: false, status: 429 });
+  try {
+    await assert.rejects(
+      detectDisease(imagePath, "user-1", "tomato"),
+      error => error.status === 502 && /no available API credits/.test(error.message)
+    );
+  } finally {
+    if (originalKey === undefined) delete process.env.PLANT_ID_API_KEY;
+    else process.env.PLANT_ID_API_KEY = originalKey;
+    global.fetch = originalFetch;
+    fs.rmSync(imageDirectory, { recursive: true, force: true });
   }
 });
 
@@ -182,7 +321,9 @@ test("disease provider responses preserve disease and healthy-leaf details", asy
     assert.match(String(url), /plant\.id\/api\/v3\/health_assessment/);
     assert.match(String(url), /details=.*treatment/);
     assert.equal(options.headers["Api-Key"], "test-provider-key");
-    const image = JSON.parse(options.body).images[0];
+    const requestBody = JSON.parse(options.body);
+    assert.equal(requestBody.similar_images, undefined);
+    const image = requestBody.images[0];
     assert.ok(image);
     requestCount += 1;
     const providerResult = image === Buffer.from("tomato leaf image").toString("base64")

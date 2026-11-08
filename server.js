@@ -6,8 +6,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
-const agricultureServices = require("./Back end/agriculture-services");
-const marketPrices = require("./Back end/market-prices");
 const dotenv = require("dotenv");
 const appEnvPath = path.join(__dirname, ".env");
 const backendEnvPath = path.join(__dirname, "Back end", ".env");
@@ -21,6 +19,8 @@ if (fs.existsSync(backendEnvPath)) {
     }
   }
 }
+const agricultureServices = require("./Back end/agriculture-services");
+const marketPrices = require("./Back end/market-prices");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -211,12 +211,16 @@ function publicUser(user) {
 
 function normalizeMobileNumber(value) {
   const input = String(value || "").trim();
-  if (!/^\+?[\d\s()-]+$/.test(input)) return "";
+  if (!/^\+?[\d\s().-]+$/.test(input)) return "";
   const digits = input.replace(/\D/g, "");
   const nationalNumber = digits.length === 10
     ? digits
     : digits.length === 12 && digits.startsWith("91")
       ? digits.slice(2)
+      : digits.length === 13 && digits.startsWith("0091")
+        ? digits.slice(4)
+        : digits.length === 11 && digits.startsWith("0")
+          ? digits.slice(1)
       : "";
   return /^[6-9]\d{9}$/.test(nationalNumber) ? `+91${nationalNumber}` : "";
 }
@@ -823,8 +827,11 @@ app.put("/api/profile", requireAuth, (req, res) => {
 app.post("/api/profile/password", requireAuth, (req, res) => {
   const currentPassword = String(req.body?.currentPassword || "");
   const newPassword = String(req.body?.newPassword || "");
-  if (!currentPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: "Enter your current password and a new password with at least 8 characters." });
+  if (!currentPassword || newPassword.length < 8 ||
+      Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res.status(400).json({
+      error: "Enter your current password and a new password between 8 and 72 bytes."
+    });
   }
 
   const db = readDB();
@@ -926,6 +933,39 @@ app.delete("/api/search-history", requireAuth, (req, res) => {
   );
   saveDB(db);
   res.json({ deleted: before - db.searchHistory.length });
+});
+
+app.get("/api/feedback", requireAuth, (req, res) => {
+  const feedback = readDB().feedbacks
+    .filter(entry => String(entry.userId) === String(req.user.id))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(feedback);
+});
+
+app.post("/api/feedback", requireAuth, (req, res) => {
+  const category = String(req.body?.category || "").trim();
+  const rating = Number(req.body?.rating);
+  const message = String(req.body?.message || "").trim();
+  const allowedCategories = [
+    "App Experience", "Crop Health", "Soil Management", "Market Advice", "Other"
+  ];
+  if (!allowedCategories.includes(category) || !Number.isInteger(rating) ||
+      rating < 1 || rating > 5 || !message || message.length > 1000) {
+    return res.status(400).json({ error: "Enter a valid feedback category, rating, and message." });
+  }
+
+  const feedback = {
+    id: crypto.randomUUID(),
+    userId: req.user.id,
+    category,
+    rating,
+    message,
+    createdAt: new Date().toISOString()
+  };
+  const db = readDB();
+  db.feedbacks.push(feedback);
+  saveDB(db);
+  res.status(201).json({ message: "Feedback submitted successfully.", feedback });
 });
 
 app.post("/api/logout", (req, res) => {
