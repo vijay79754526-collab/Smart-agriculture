@@ -29,20 +29,24 @@ const DEPLOYED_PUBLIC_DIR = path.join(__dirname, "public");
 const PUBLIC_DIR = fs.existsSync(DEPLOYED_PUBLIC_DIR)
   ? DEPLOYED_PUBLIC_DIR
   : path.join(__dirname, "..", "public");
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
-const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(DATA_DIR, "uploads"));
+// Folders and database
+const IS_VERCEL = process.env.VERCEL === "1";
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const DATA_DIR = IS_VERCEL
+  ? path.join("/tmp", "smart-agriculture", "data")
+  : path.resolve(process.env.DATA_DIR || path.join(__dirname, "data"));
+
+const UPLOAD_DIR = IS_VERCEL
+  ? path.join("/tmp", "smart-agriculture", "uploads")
+  : path.resolve(process.env.UPLOAD_DIR || path.join(DATA_DIR, "..", "uploads"));
+
 const DB_FILE = path.join(DATA_DIR, "db.json");
-
 // Create folders if missing
 for (const folder of [DATA_DIR, UPLOAD_DIR]) {
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, { recursive: true });
   }
 }
-
 // Create JSON database if missing
 const DEFAULT_DB = {
   users: [],
