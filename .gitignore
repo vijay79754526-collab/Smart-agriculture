@@ -1,12 +1,12 @@
 # Environment variables
 .env
 .env.*
-Back end/.env
-Back end/.env.*
+Backend/.env
+Backend/.env.*
 
 # Dependencies
 node_modules/
-Back end/node_modules/
+Backend/node_modules/
 
 # Logs
 npm-debug.log*
@@ -16,11 +16,11 @@ npm-debug.log*
 .vscode/
 
 # Runtime data
-Back end/data/*
-Back end/uploads/*
+Backend/data/*
+Backend/uploads/*
 data/
-Back end/data/
-Back end/uploads/
+Backend/data/
+Backend/uploads/
 .env
-Back end/.env
+Backend/.env
 node_modules/
